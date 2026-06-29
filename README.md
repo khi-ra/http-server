@@ -1,1 +1,1 @@
-# A Web-Server in C
+# A HTTP-Server in C
