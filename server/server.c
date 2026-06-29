@@ -1,56 +1,62 @@
 #include "../utilities/socketutil.h"
-#include <errno.h>
+#include <err.h>
+#include <netinet/in.h>
+#include <stdlib.h>
+#include <sys/socket.h>
+#include <unistd.h>
+
+struct accepted_socket *accept_connection(int server_socket_fd);
 
 int main()
 {
-    // create server socket and address
-    int server_socket_fd = create_tcp_ipv4_socket();
+    int server_socket_fd;
+    struct sockaddr_in *server_address;
+    struct accepted_socket *client_socket;
+
+    // create server socket
+    server_address = create_ipv4_address("", 49153);
+    server_socket_fd = create_tcp_ipv4_socket();
     if (server_socket_fd == -1)
-    {
-        fprintf(stderr, "Error encountered when creating TCP IPv4 socket, errno: %d\n", errno);
-        return -1;
-    }
-    struct sockaddr_in *server_address = create_ipv4_address("", 49153);
+        errx(EXIT_FAILURE, "Error encountered when creating TCP IPv4 socket");
 
     // bind server socket to server address
     int bind_flag = bind(server_socket_fd, (struct sockaddr *) server_address, sizeof(*server_address));
     if (bind_flag == -1)
-    {
-        fprintf(stderr, "Server socket bind was unsuccessful, errno: %d\n", errno);
-        return -1;
-    }
-    else
-        printf("Server socket was bound successfully\n");
+        errx(EXIT_FAILURE, "Server socket could not be bound");
 
-    // listen for connection requests on server socket
-    int listen_flag = listen(server_socket_fd, 5);
-    if (listen_flag == -1)
-    {
-        fprintf(stderr, "Error encountered when listening for connections, errno: %d\n", errno);
-        return -1;
-    }
+    printf("Server socket was bound successfully\n");
 
-    // accept incoming request from client and open a socket to communicate
-    struct sockaddr_in *client_address = NULL;
-    socklen_t client_address_size = sizeof(struct sockaddr_in);
+    // accept any incoming requests
+    if ((listen(server_socket_fd, 5)) == -1)
+        errx(EXIT_FAILURE, "Error encountered when listening for connections");
 
-    int client_socket_fd = accept(server_socket_fd, (struct sockaddr *) client_address, &client_address_size);
-    if (client_socket_fd == -1)
-    {
-        fprintf(stderr, "Error encountered when accepting connections, errno: %d\n", errno);
-        return -1;
-    }
+    client_socket = accept_connection(server_socket_fd);
+    if (!client_socket->accepted)
+        errx(EXIT_FAILURE, "Error accepting incoming connection");
 
-    // receive message/request from the client
+    // receive message from the client and print to stdout
     char buffer[1024];
-    int receive_flag = recv(client_socket_fd, buffer, 1024, 0);
-    if (receive_flag == -1)
+    while (true)
     {
-        fprintf(stderr, "Error encountered when attemping to receive requests/messages, errno: %d\n", errno);
-        return -1;
-    }
-    else
-        printf("Response was: %s\n", buffer);
+        int n_recv = recv(client_socket->socket_fd, buffer, 1024, 0);
 
+        if (n_recv > 0)
+        {
+            buffer[n_recv] = 0;
+            printf("Response was: %s\n", buffer);
+        }
+
+        if (n_recv == -1)
+            errx(EXIT_FAILURE, "Error receiving requests/messages");
+
+        if (n_recv == 0)
+            break;
+    }
+
+    // close files and free memory
+    close(client_socket->socket_fd);
+    shutdown(server_socket_fd, SHUT_RDWR);
     free(server_address);
+    free(client_socket);
+    return 0;
 }
