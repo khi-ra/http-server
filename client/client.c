@@ -3,7 +3,7 @@
 #include <errno.h>
 #include <unistd.h>
 
-int read_input(char *line);
+int read_input(char **line);
 
 int main()
 {
@@ -22,7 +22,7 @@ int main()
 
     while (true)
     {
-        int n_read = read_input(line);
+        int n_read = read_input(&line);
 
         if (n_read == -1)
             errx(EXIT_FAILURE, "Error reading input from stdin");
@@ -41,10 +41,10 @@ int main()
     return 0;
 }
 
-int read_input(char *line)
+int read_input(char **line)
 {
     size_t line_size = 0;
-    ssize_t char_count = getline(&line, &line_size, stdin);
+    ssize_t char_count = getline(line, &line_size, stdin);
 
     if (char_count == -1 && (errno == EINVAL || errno == ENOMEM))
         return -1;
