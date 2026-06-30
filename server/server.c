@@ -3,6 +3,7 @@
 #include <netinet/in.h>
 #include <stdlib.h>
 #include <sys/socket.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 struct accepted_socket *accept_connection(int server_socket_fd);
@@ -34,28 +35,34 @@ int main()
     if (!client_socket->accepted)
         errx(EXIT_FAILURE, "Error accepting incoming connection");
 
-    // receive message from the client and print to stdout
-    char buffer[1024];
-    while (true)
+    // create child process to handle accepted client
+    if (!fork())
     {
-        int n_recv = recv(client_socket->socket_fd, buffer, 1024, 0);
-
-        if (n_recv > 0)
+        // receive message from the client and print to stdout
+        char buffer[1024];
+        while (true)
         {
-            buffer[n_recv] = 0;
-            printf("Response was: %s\n", buffer);
+            int n_recv = recv(client_socket->socket_fd, buffer, sizeof(buffer), 0);
+
+            if (n_recv > 0)
+            {
+                buffer[n_recv] = 0;
+                printf("Response was: %s\n", buffer);
+            }
+
+            if (n_recv == -1)
+                errx(EXIT_FAILURE, "Error receiving requests/messages");
+
+            if (n_recv == 0)
+                break;
         }
-
-        if (n_recv == -1)
-            errx(EXIT_FAILURE, "Error receiving requests/messages");
-
-        if (n_recv == 0)
-            break;
     }
+    else
+        wait(NULL);
 
     // close files and free memory
     close(client_socket->socket_fd);
-    shutdown(server_socket_fd, SHUT_RDWR);
+    close(server_socket_fd);
     free(server_address);
     free(client_socket);
     return 0;
