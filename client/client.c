@@ -41,13 +41,15 @@ int main()
     return 0;
 }
 
+/* Read user input line-by-line from stdin and store it in LINE.
+ * Return number of bytes read or -1 for errors. */
 int read_input(char **line)
 {
     size_t line_size = 0;
-    ssize_t char_count = getline(line, &line_size, stdin);
+    ssize_t n_read = getline(line, &line_size, stdin);
 
-    if (char_count == -1 && (errno == EINVAL || errno == ENOMEM))
+    if (n_read == -1 && (errno == EINVAL || errno == ENOMEM))
         return -1;
 
-    return char_count;
+    return n_read;
 }
