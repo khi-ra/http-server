@@ -7,6 +7,7 @@
 #include <unistd.h>
 
 struct accepted_socket *accept_connection(int server_socket_fd);
+int recv_and_write_msg(int sock_fd);
 
 int main()
 {
@@ -42,13 +43,7 @@ int main()
         char buffer[1024];
         while (true)
         {
-            int n_recv = recv(client_socket->socket_fd, buffer, sizeof(buffer), 0);
-
-            if (n_recv > 0)
-            {
-                buffer[n_recv] = 0;
-                printf("Response was: %s\n", buffer);
-            }
+            int n_recv = recv_and_write_msg(client_socket->socket_fd);
 
             if (n_recv == -1)
                 errx(EXIT_FAILURE, "Error receiving requests/messages");
@@ -66,4 +61,20 @@ int main()
     free(server_address);
     free(client_socket);
     return 0;
+}
+
+/* Receive message from SOCK_FD and print it to stdout. Return number
+ * of bytes received or -1 for error. */
+int recv_and_write_msg(int sock_fd)
+{
+    char buffer[1024];
+    int n_recv = recv(sock_fd, buffer, sizeof(buffer), 0);
+
+    if (n_recv > 0)
+    {
+        buffer[n_recv] = 0;
+        printf("Response was: %s\n", buffer);
+    }
+
+    return n_recv;
 }
