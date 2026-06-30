@@ -1,18 +1,21 @@
 #include "../utilities/socketutil.h"
-#include <err.h>
 #include <errno.h>
+#include <error.h>
+#include <stdlib.h>
 #include <unistd.h>
 
 int read_input(char **line);
 
 int main()
 {
-    int client_socket_fd = create_tcp_ipv4_socket();
-    struct sockaddr_in *server_address = create_ipv4_address("127.0.0.1", 49153);
+    struct sockaddr_in *server_address = NULL;
+
+    int socket_fd = create_tcp_ipv4_socket();
+    create_ipv4_address(&server_address, "127.0.0.1", 8080);
 
     // send connection request to server
-    if (connect(client_socket_fd, (struct sockaddr *) server_address, sizeof(*server_address)) == -1)
-        errx(EXIT_FAILURE, "Connecton unsuccessful");
+    if (connect(socket_fd, (struct sockaddr *) server_address, sizeof(*server_address)) == -1)
+        error(EXIT_FAILURE, errno, "connect failed");
 
     printf("Connection was successful\n");
 
@@ -25,17 +28,17 @@ int main()
         int n_read = read_input(&line);
 
         if (n_read == -1)
-            errx(EXIT_FAILURE, "Error reading input from stdin");
+            error(EXIT_FAILURE, errno, "reading user input failed:");
 
         if (strcmp(line, "exit\n") == 0)
             break;
 
-        if (send(client_socket_fd, line, n_read, 0) == -1)
-            errx(EXIT_FAILURE, "Error sending message to server");
+        if (send(socket_fd, line, n_read, 0) == -1)
+            error(EXIT_FAILURE, errno, "sending message to server failed");
     }
 
     // close file and free memory
-    close(client_socket_fd);
+    close(socket_fd);
     free(server_address);
     free(line);
     return 0;
