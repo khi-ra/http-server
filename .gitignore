@@ -14,7 +14,6 @@
 *.sig
 
 pkg/
-src/
 
 ### C ###
 # Prerequisites
@@ -46,6 +45,9 @@ src/
 *.so
 *.so.*
 *.dylib
+
+# Build folder
+build
 
 # Executables
 *.out
