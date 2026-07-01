@@ -34,8 +34,9 @@ int main()
     if ((listen(socket_fd, MAXCONN)) == -1)
         error(EXIT_FAILURE, errno, "listen failed");
 
-    // accept connections and create a child process to handle each connection
+    // accept connections and handle connected client's requests
     int n_children;
+
     while (true)
     {
         accepted_socket = accept_connection(socket_fd);
@@ -91,7 +92,7 @@ int recv_and_write_msg(struct accepted_socket *accepted_socket)
         char ip[INET_ADDRSTRLEN];
         short port;
 
-        // converting ip and port to human readable format
+        // convert ip and port to human readable format
         inet_ntop(accepted_socket->address.sin_family, &accepted_socket->address.sin_addr.s_addr, ip, sizeof(ip));
         port = ntohs(accepted_socket->address.sin_port);
 

@@ -44,7 +44,7 @@ int main()
     return 0;
 }
 
-/* Read user input line-by-line from stdin and store it in LINE.
+/* Read input line-by-line from stdin and store it in LINE.
  * Return number of bytes read or -1 for errors. */
 int read_input(char **line)
 {

@@ -8,19 +8,19 @@ int create_tcp_ipv4_socket()
     return socket(AF_INET, SOCK_STREAM, 0);
 }
 
-void create_ipv4_address(struct sockaddr_in **address, char *ip, int port)
+void create_ipv4_address(struct sockaddr_in **addr, char *ip, int port)
 {
-    *address = realloc(*address, sizeof(struct sockaddr_in));
+    *addr = realloc(*addr, sizeof(struct sockaddr_in));
 
-    (*address)->sin_family = AF_INET;
+    (*addr)->sin_family = AF_INET;
 
     if (port)
-        (*address)->sin_port = htons(port);
+        (*addr)->sin_port = htons(port);
 
     if (strlen(ip) == 0) // listen for any ip address if none is specified
-        (*address)->sin_addr.s_addr = INADDR_ANY;
+        (*addr)->sin_addr.s_addr = INADDR_ANY;
     else
-        inet_pton(AF_INET, ip, &(*address)->sin_addr.s_addr);
+        inet_pton(AF_INET, ip, &(*addr)->sin_addr.s_addr);
 }
 
 struct accepted_socket *accept_connection(int socket_fd)
