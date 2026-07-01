@@ -19,10 +19,11 @@ struct accepted_socket
 /* Create and return a file descriptor for a TCP IPv4 socket. */
 int create_tcp_ipv4_socket();
 
-/* Initialise *ADDRESS with IP and PORT. */
-void create_ipv4_address(struct sockaddr_in **address, char *ip, int port);
+/* Initialise *ADDR with IP and PORT. */
+void create_ipv4_address(struct sockaddr_in **addr, char *ip, int port);
 
-/* Accept connection on SOCKET_FD and create and return *ACCEPTED_SOCKET. */
+/* Accept connection on SOCKET_FD and create a struct accepted_socket.
+ * Return a pointer to struct accepted_socket. */
 struct accepted_socket *accept_connection(int socket_fd);
 
 #endif
