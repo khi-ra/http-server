@@ -35,18 +35,29 @@ int main()
         error(EXIT_FAILURE, errno, "listen failed");
 
     // accept connections and handle connected client's requests
-    int n_children;
+    int n_children = 0;
 
-    while (true)
+    while(true)
     {
+	if (waitpid(-1, NULL, WNOHANG) > 0)
+	    n_children--;
+
         accepted_socket = accept_connection(socket_fd);
+
+	if (accepted_socket == NULL)
+	{
+	    if (n_children == 0)
+		break;
+	    continue;
+	}
+
         if (accepted_socket->accepted)
         {
             printf("Connection successfully received\n");
-            if (!fork())
-            {
-                n_children++;
 
+	    pid_t fork_pid = fork();
+	    if (fork_pid == 0)
+            {
                 // receive messages from connected peer and write them to stdout
                 while (true)
                 {
@@ -62,14 +73,15 @@ int main()
                 free(accepted_socket);
                 _exit(EXIT_SUCCESS);
             }
+	    else if (fork_pid > 0)
+		n_children++;
         }
         else
             error(0, errno, "accept failed");
     }
 
-    // parent waits for all children
-    for (int i = 0; i < n_children; i++)
-        wait(NULL);
+    // closing message
+    printf("No active connections, closing server...\n");
 
     // close files and free memory
     close(socket_fd);

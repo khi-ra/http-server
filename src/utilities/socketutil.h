@@ -9,6 +9,9 @@
 #include <string.h>
 #include <sys/socket.h>
 
+/* How long to wait for a connection before returning. (ms) */
+static const int SOCKET_TIMEOUT = 5000;
+
 struct accepted_socket
 {
     int socket_fd;

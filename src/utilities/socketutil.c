@@ -1,7 +1,8 @@
 #include "socketutil.h"
 #include <err.h>
-#include <netinet/in.h>
+#include <poll.h>
 #include <stdlib.h>
+#include <netinet/in.h>
 
 int create_tcp_ipv4_socket()
 {
@@ -25,6 +26,22 @@ void create_ipv4_address(struct sockaddr_in **addr, char *ip, int port)
 
 struct accepted_socket *accept_connection(int socket_fd)
 {
+    // initialise poll file descriptor struct for readability events
+    struct pollfd pfd;
+    pfd.fd = socket_fd;
+    pfd.events = POLLIN;
+
+    // wait for SOCKET_TIMEOUT ms for readability events
+    int poll_ret = poll(&pfd, 1, SOCKET_TIMEOUT);
+
+    if (poll_ret == 0) // no read events return NULL
+	return NULL;
+    else if (poll_ret < 0) // poll errored out
+    {
+	fprintf(stderr, "[POLL ERROR] : %i", poll_ret);
+	return NULL;
+    }
+
     // accept connection
     struct sockaddr_in addr;
     socklen_t addr_size = sizeof(struct sockaddr_in);
