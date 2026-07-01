@@ -1,6 +1,7 @@
 #include "../utilities/socketutil.h"
 #include <errno.h>
 #include <error.h>
+#include <fcntl.h>
 #include <netinet/in.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -8,7 +9,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-#define MAX_CONNECTIONS 5
+#define MAXCONN 5
 
 int recv_and_write_msg(struct accepted_socket *accepted_socket);
 
@@ -27,20 +28,20 @@ int main()
     if (bind(socket_fd, (struct sockaddr *) address, sizeof(struct sockaddr)) == -1)
         error(EXIT_FAILURE, errno, "bind failed");
 
-    printf("Server socket was bound successfully\n");
+    printf("Server socket successfully bound\n");
 
-    // listen for incoming connection requests, queue upto MAX_CONNECTIONS connections
-    if ((listen(socket_fd, MAX_CONNECTIONS)) == -1)
+    // listen for incoming connection requests, queue upto MAXCONN connections
+    if ((listen(socket_fd, MAXCONN)) == -1)
         error(EXIT_FAILURE, errno, "listen failed");
 
     // accept connections and create a child process to handle each connection
     int n_children;
-    for (int i = 0; i < MAX_CONNECTIONS; i++)
+    while (true)
     {
         accepted_socket = accept_connection(socket_fd);
-
         if (accepted_socket->accepted)
         {
+            printf("Connection successfully received\n");
             if (!fork())
             {
                 n_children++;
@@ -58,6 +59,7 @@ int main()
 
                 close(accepted_socket->socket_fd);
                 free(accepted_socket);
+                _exit(EXIT_SUCCESS);
             }
         }
         else
