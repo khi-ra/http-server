@@ -31,7 +31,6 @@ struct accepted_socket *accept_connection(int socket_fd, int timeout_ms)
     struct accepted_socket *accepted_socket = malloc(sizeof(struct accepted_socket));
     memset(accepted_socket, 0, sizeof(struct accepted_socket));
 
-    // poll for read event
     if (poll_read_event(socket_fd, timeout_ms) <= 0)
     {
         accepted_socket->accepted = false;
@@ -43,7 +42,6 @@ struct accepted_socket *accept_connection(int socket_fd, int timeout_ms)
     socklen_t addr_size = sizeof(struct sockaddr_in);
     int fd = accept(socket_fd, (struct sockaddr *) &addr, &addr_size);
 
-    // populate struct
     accepted_socket->socket_fd = fd;
     accepted_socket->address = addr;
     accepted_socket->accepted = accepted_socket->socket_fd > 0;
