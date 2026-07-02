@@ -1,8 +1,10 @@
 #include "../utilities/socketutil.h"
+#include <asm-generic/errno-base.h>
 #include <errno.h>
 #include <error.h>
 #include <fcntl.h>
 #include <netinet/in.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/socket.h>
@@ -12,41 +14,62 @@
 #define MAXCONN 5
 
 int recv_and_write_msg(struct accepted_socket *accepted_socket);
+void sigchld_handler(int sig_num);
+void init_sigchld_action(struct sigaction *sigchld_action);
 
 int main()
 {
     int socket_fd;
     struct sockaddr_in *address = NULL;
     struct accepted_socket *accepted_socket;
+    struct sigaction sigchld_action;
 
-    // create the server's socket fd and address
+    // create server's TCP socket
     create_ipv4_address(&address, "", 8080);
     if ((socket_fd = create_tcp_ipv4_socket()) == -1)
         error(EXIT_FAILURE, errno, "creating socket failed");
 
-    // bind the server's socket fd and address
     if (bind(socket_fd, (struct sockaddr *) address, sizeof(struct sockaddr)) == -1)
         error(EXIT_FAILURE, errno, "bind failed");
 
-    printf("Server socket successfully bound\n");
+    printf("Server socket successfully created\n");
 
-    // listen for incoming connection requests, queue upto MAXCONN connections
     if ((listen(socket_fd, MAXCONN)) == -1)
         error(EXIT_FAILURE, errno, "listen failed");
 
+    // initialise a custom sigaction struct and set it as SIGCHLD's action
+    init_sigchld_action(&sigchld_action);
+    if (sigaction(SIGCHLD, &sigchld_action, NULL) == -1)
+        error(EXIT_FAILURE, errno, "sigaction failed");
+
     // accept connections and handle connected client's requests
-    int n_children;
+    int n_children = 0;
 
     while (true)
     {
-        accepted_socket = accept_connection(socket_fd);
-        if (accepted_socket->accepted)
+        printf("n_children: %d\n ", n_children);
+
+        // set the polling duration based on the number of active connections
+        int timeout_ms = 0;
+        if (n_children == 0)
+            timeout_ms = SOCKET_TIMEOUT_MS;
+        else if (n_children > 0)
+            timeout_ms = -1;
+        else
+            break;
+
+        accepted_socket = accept_connection(socket_fd, timeout_ms);
+
+        // if poll() or accept() have been interrupted by SIGCHLD
+        if (!accepted_socket->accepted && errno == EINTR)
+            n_children--;
+        else if (accepted_socket->accepted)
         {
             printf("Connection successfully received\n");
-            if (!fork())
-            {
-                n_children++;
 
+            pid_t handler_pid = fork();
+            if (handler_pid == 0)
+            {
                 // receive messages from connected peer and write them to stdout
                 while (true)
                 {
@@ -62,14 +85,14 @@ int main()
                 free(accepted_socket);
                 _exit(EXIT_SUCCESS);
             }
+            else if (handler_pid > 0)
+                n_children++;
+            else
+                error(0, errno, "fork failed");
         }
-        else
-            error(0, errno, "accept failed");
     }
 
-    // parent waits for all children
-    for (int i = 0; i < n_children; i++)
-        wait(NULL);
+    printf("No active connections, closing server...\n");
 
     // close files and free memory
     close(socket_fd);
@@ -101,4 +124,26 @@ int recv_and_write_msg(struct accepted_socket *accepted_socket)
     }
 
     return n_recv;
+}
+
+/* Custom handler for signal SIGCHLD. */
+void sigchld_handler(int sig_num)
+{
+    // quiet unused variable warning
+    (void) sig_num;
+
+    int saved_errno = errno;
+
+    while (waitpid(-1, NULL, WNOHANG) > 0)
+        ;
+
+    errno = saved_errno;
+}
+
+/* Initialise SIGCHLD_ACTION. */
+void init_sigchld_action(struct sigaction *sigchld_action)
+{
+    sigchld_action->sa_handler = sigchld_handler;
+    sigchld_action->sa_flags = 0;
+    sigemptyset(&sigchld_action->sa_mask);
 }
