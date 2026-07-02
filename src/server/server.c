@@ -78,7 +78,7 @@ int main()
 			// check if connection timed out
 			if (errno == EAGAIN || errno == EWOULDBLOCK)
 			{
-			    printf("Client idle timeout\n");
+			    printf("Client %i idle timeout\n", n_children);
 			    break;
 			}
 			    
@@ -88,7 +88,7 @@ int main()
                         break;
                 }
 
-		printf("Closing connection\n");
+		printf("Closing connection for client %i\n", n_children);
 
                 close(accepted_socket->socket_fd);
                 free(accepted_socket);
