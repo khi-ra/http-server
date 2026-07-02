@@ -11,6 +11,8 @@
 
 /* How long to wait for a connection before returning. */
 static const int SOCKET_TIMEOUT_MS = 5000;
+/* How long to idle an active connection before closing. */
+static const int SOCKET_IDLE_TIMEOUT_S = 60;
 
 struct accepted_socket
 {
