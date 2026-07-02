@@ -74,10 +74,21 @@ int main()
                     int n_recv = recv_and_write_msg(accepted_socket);
 
                     if (n_recv == -1)
-                        error(0, errno, "receive failed");
+		    {
+			// check if connection timed out
+			if (errno == EAGAIN || errno == EWOULDBLOCK)
+			{
+			    printf("Client idle timeout\n");
+			    break;
+			}
+			    
+			error(0, errno, "receive failed");
+		    }
                     else if (n_recv == 0)
                         break;
                 }
+
+		printf("Closing connection\n");
 
                 close(accepted_socket->socket_fd);
                 free(accepted_socket);
@@ -90,7 +101,7 @@ int main()
         }
     }
 
-    printf("No active connections, closing server...\n");
+    printf("No active connections, closing server\n");
 
     // close files and free memory
     close(socket_fd);

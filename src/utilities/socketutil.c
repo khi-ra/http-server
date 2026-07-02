@@ -7,7 +7,19 @@
 
 int create_tcp_ipv4_socket()
 {
-    return socket(AF_INET, SOCK_STREAM, 0);
+    int sock = socket(AF_INET, SOCK_STREAM, 0);
+
+    if (sock < 0)
+	return -1;
+
+    struct timeval timeout;
+    timeout.tv_sec = SOCKET_IDLE_TIMEOUT_S;
+    timeout.tv_usec = 0;
+
+    if (setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0)
+	return -1;
+
+    return sock;
 }
 
 void create_ipv4_address(struct sockaddr_in **addr, char *ip, int port)
