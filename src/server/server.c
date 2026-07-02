@@ -13,6 +13,8 @@
 
 #define MAXCONN 5
 
+int n_children = 0;
+
 int recv_and_write_msg(struct accepted_socket *accepted_socket);
 void sigchld_handler(int sig_num);
 void init_sigchld_action(struct sigaction *sigchld_action);
@@ -43,11 +45,9 @@ int main()
         error(EXIT_FAILURE, errno, "sigaction failed");
 
     // accept connections and handle connected client's requests
-    int n_children = 0;
-
     while (true)
     {
-        printf("n_children: %d\n ", n_children);
+        printf("n_children: %d\n", n_children);
 
         // set the polling duration based on the number of active connections
         int timeout_ms = 0;
@@ -55,15 +55,13 @@ int main()
             timeout_ms = SOCKET_TIMEOUT_MS;
         else if (n_children > 0)
             timeout_ms = -1;
-        else
-            break;
 
         accepted_socket = accept_connection(socket_fd, timeout_ms);
 
-        // if poll() or accept() have been interrupted by SIGCHLD
-        if (!accepted_socket->accepted && errno == EINTR)
-            n_children--;
-        else if (accepted_socket->accepted)
+	if (!accepted_socket->accepted && timeout_ms > 0)
+	    break;
+
+        if (accepted_socket->accepted)
         {
             printf("Connection successfully received\n");
 
@@ -135,7 +133,7 @@ void sigchld_handler(int sig_num)
     int saved_errno = errno;
 
     while (waitpid(-1, NULL, WNOHANG) > 0)
-        ;
+        n_children--;
 
     errno = saved_errno;
 }
@@ -144,6 +142,6 @@ void sigchld_handler(int sig_num)
 void init_sigchld_action(struct sigaction *sigchld_action)
 {
     sigchld_action->sa_handler = sigchld_handler;
-    sigchld_action->sa_flags = 0;
+    sigchld_action->sa_flags = SA_RESTART;
     sigemptyset(&sigchld_action->sa_mask);
 }
