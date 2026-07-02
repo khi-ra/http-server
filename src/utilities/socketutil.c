@@ -56,7 +56,7 @@ int poll_read_event(int socket_fd, int duration_ms)
     pfd.fd = socket_fd;
     pfd.events = POLLIN;
 
-    // wait for duration for read events
+    // wait duration milliseconds for read events
     int poll_fds = poll(&pfd, 1, duration_ms);
     return poll_fds;
 }

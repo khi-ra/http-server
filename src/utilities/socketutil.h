@@ -31,7 +31,8 @@ void create_ipv4_address(struct sockaddr_in **addr, char *ip, int port);
 struct accepted_socket *accept_connection(int socket_fd, int timeout_ms);
 
 /* Poll for read events on SOCKET_FD for DURATION_MS.
- * Return the number of file descriptors with events, 0 if timed out or -1 for error. */
+ * Upon success, return the number of file descriptors with events.
+ * Otherwise, return 0 if timed out or -1 for error. */
 int poll_read_event(int socket_fd, int duration_ms);
 
 #endif
