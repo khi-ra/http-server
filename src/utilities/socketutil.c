@@ -7,19 +7,17 @@
 
 int create_tcp_ipv4_socket()
 {
-    int sock = socket(AF_INET, SOCK_STREAM, 0);
-
-    if (sock < 0)
-	return -1;
-
     struct timeval timeout;
     timeout.tv_sec = SOCKET_IDLE_TIMEOUT_S;
     timeout.tv_usec = 0;
 
-    if (setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0)
-	return -1;
+    int socket_fd = socket(AF_INET, SOCK_STREAM, 0);
+    int sockopt_flag = setsockopt(socket_fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
 
-    return sock;
+    if (socket_fd == -1 || sockopt_flag == -1)
+        return -1;
+
+    return socket_fd;
 }
 
 void create_ipv4_address(struct sockaddr_in **addr, char *ip, int port)
