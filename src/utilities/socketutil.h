@@ -9,8 +9,8 @@
 #include <string.h>
 #include <sys/socket.h>
 
-/* How long to wait for a connection before returning. */
-static const int SOCKET_TIMEOUT_MS = 5000;
+/* How long to wait for a connection in idle before shutting down. */
+static const int SERVER_IDLE_TIMEOUT_MS = 5000;
 
 /* How long to idle an active connection before closing. */
 static const int SOCKET_IDLE_TIMEOUT_S = 60;
