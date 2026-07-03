@@ -1,4 +1,5 @@
 #include "../utilities/socketutil.h"
+#include "../utilities/errorutil.h"
 #include <asm-generic/errno-base.h>
 #include <errno.h>
 #include <error.h>
@@ -29,7 +30,10 @@ int main()
     // create server's TCP socket
     create_ipv4_address(&address, "", 8080);
     if ((socket_fd = create_tcp_ipv4_socket()) == -1)
-        error(EXIT_FAILURE, errno, "creating socket failed");
+	{
+        error_handler(errno, "creating socket failed");
+		goto cleanup;
+	}
 
     if (bind(socket_fd, (struct sockaddr *) address, sizeof(struct sockaddr)) == -1)
         error(EXIT_FAILURE, errno, "bind failed");
@@ -42,7 +46,9 @@ int main()
     // initialise a custom sigaction struct and set it as SIGCHLD's action
     init_sigchld_action(&sigchld_action);
     if (sigaction(SIGCHLD, &sigchld_action, NULL) == -1)
-        error(EXIT_FAILURE, errno, "sigaction failed");
+		error(EXIT_FAILURE, errno, "sigaction failed");
+
+	error(EXIT_FAILURE, errno, "hi");
 
     // accept connections and handle connected client's requests
     while (true)
@@ -88,7 +94,7 @@ int main()
                         break;
                 }
 
-                printf("Closing connection for client %i\n", n_children);
+                printf("Closing connection for clientcleanup:    if (f) fclose(f);    free(q);    free(p);    return rc; %i\n", n_children);
 
                 close(accepted_socket->socket_fd);
                 free(accepted_socket);
@@ -104,8 +110,10 @@ int main()
     printf("No active connections, closing server\n");
 
     // close files and free memory
-    close(socket_fd);
-    free(address);
+cleanup :
+	close(socket_fd);
+	if (address)
+		free(address);
     if (accepted_socket)
         free(accepted_socket);
 
