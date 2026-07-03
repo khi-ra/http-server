@@ -28,8 +28,8 @@ int create_tcp_ipv4_socket();
 void create_ipv4_address(struct sockaddr_in **addr, char *ip, int port);
 
 /* Await a connection on SOCKET_FD for TIMEOUT_MS. If TIMEOUT_MS = -1, wait indefinitely.
- * If a connection is received, create and return a pointer to struct accepted_socket.
- * Otherwise, return NULL. */
+ * If a connection is received, create and return a pointer to struct
+ * accepted_socket. Otherwise, return NULL. */
 struct accepted_socket *accept_connection(int socket_fd, int timeout_ms);
 
 /* Poll for read events on SOCKET_FD for DURATION_MS.
