@@ -11,6 +11,7 @@
 
 /* How long to wait for a connection before returning. */
 static const int SOCKET_TIMEOUT_MS = 5000;
+
 /* How long to idle an active connection before closing. */
 static const int SOCKET_IDLE_TIMEOUT_S = 60;
 
@@ -24,8 +25,8 @@ struct accepted_socket
 /* Create and return a file descriptor for a TCP IPv4 socket. */
 int create_tcp_ipv4_socket();
 
-/* Initialise *ADDR with IP and PORT. */
-void create_ipv4_address(struct sockaddr_in **addr, char *ip, int port);
+/* Create and return a `struct sockaddr_in` initialised with IP and PORT. */
+struct sockaddr_in create_ipv4_address(char *ip, int port);
 
 /* Await a connection on SOCKET_FD for TIMEOUT_MS. If TIMEOUT_MS = -1, wait indefinitely.
  * If a connection is received, create and return a pointer to struct

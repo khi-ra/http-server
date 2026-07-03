@@ -20,19 +20,21 @@ int create_tcp_ipv4_socket()
     return socket_fd;
 }
 
-void create_ipv4_address(struct sockaddr_in **addr, char *ip, int port)
+struct sockaddr_in create_ipv4_address(char *ip, int port)
 {
-    *addr = realloc(*addr, sizeof(struct sockaddr_in));
+    struct sockaddr_in addr;
 
-    (*addr)->sin_family = AF_INET;
+    addr.sin_family = AF_INET;
 
     if (port)
-        (*addr)->sin_port = htons(port);
+        addr.sin_port = htons(port);
 
     if (strlen(ip) == 0) // listen for any ip address if none is specified
-        (*addr)->sin_addr.s_addr = INADDR_ANY;
+        addr.sin_addr.s_addr = INADDR_ANY;
     else
-        inet_pton(AF_INET, ip, &(*addr)->sin_addr.s_addr);
+        inet_pton(AF_INET, ip, &addr.sin_addr.s_addr);
+
+    return addr;
 }
 
 struct accepted_socket *accept_connection(int socket_fd, int timeout_ms)
