@@ -37,15 +37,14 @@ struct sockaddr_in create_ipv4_address(char *ip, int port)
     return addr;
 }
 
-struct accepted_socket *accept_connection(int socket_fd, int timeout_ms)
+struct accepted_socket accept_connection(int socket_fd, int timeout_ms)
 {
     // create and zero-fill accepted socket struct
-    struct accepted_socket *accepted_socket = malloc(sizeof(struct accepted_socket));
-    memset(accepted_socket, 0, sizeof(struct accepted_socket));
+    struct accepted_socket accepted_socket;
 
     if (poll_read_event(socket_fd, timeout_ms) <= 0)
     {
-        accepted_socket->accepted = false;
+        accepted_socket.accepted = false;
         return accepted_socket;
     }
 
@@ -54,9 +53,9 @@ struct accepted_socket *accept_connection(int socket_fd, int timeout_ms)
     socklen_t addr_size = sizeof(struct sockaddr_in);
     int fd = accept(socket_fd, (struct sockaddr *) &addr, &addr_size);
 
-    accepted_socket->socket_fd = fd;
-    accepted_socket->address = addr;
-    accepted_socket->accepted = accepted_socket->socket_fd > 0;
+    accepted_socket.socket_fd = fd;
+    accepted_socket.address = addr;
+    accepted_socket.accepted = accepted_socket.socket_fd > 0;
 
     return accepted_socket;
 }
