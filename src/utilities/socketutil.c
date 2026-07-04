@@ -18,7 +18,6 @@ int create_tcp_ipv4_socket()
 struct sockaddr_in create_ipv4_address(char *ip, int port)
 {
     struct sockaddr_in addr;
-
     addr.sin_family = AF_INET;
 
     if (port)
@@ -35,6 +34,8 @@ struct sockaddr_in create_ipv4_address(char *ip, int port)
 struct accepted_socket accept_connection(int socket_fd, int timeout_ms)
 {
     struct accepted_socket accepted_socket;
+    struct sockaddr_in addr;
+    socklen_t addr_size = sizeof(struct sockaddr_in);
 
     if (poll_read_event(socket_fd, timeout_ms) <= 0)
     {
@@ -43,10 +44,7 @@ struct accepted_socket accept_connection(int socket_fd, int timeout_ms)
     }
 
     // accept connection
-    struct sockaddr_in addr;
-    socklen_t addr_size = sizeof(struct sockaddr_in);
     int fd = accept(socket_fd, (struct sockaddr *) &addr, &addr_size);
-
     accepted_socket.socket_fd = fd;
     accepted_socket.address = addr;
     accepted_socket.accepted = accepted_socket.socket_fd > 0;
@@ -56,12 +54,12 @@ struct accepted_socket accept_connection(int socket_fd, int timeout_ms)
 
 int poll_read_event(int socket_fd, int duration_ms)
 {
-    // initialise poll file descriptor struct for read events
+    // initialise poll request struct for read events
     struct pollfd pfd;
     pfd.fd = socket_fd;
     pfd.events = POLLIN;
 
-    // wait duration milliseconds for read events
+    // wait duration_ms milliseconds for read events
     int poll_fds = poll(&pfd, 1, duration_ms);
     return poll_fds;
 }
