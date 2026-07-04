@@ -1,9 +1,4 @@
 #include "socketutil.h"
-#include <err.h>
-#include <netinet/in.h>
-#include <poll.h>
-#include <stdbool.h>
-#include <stdlib.h>
 
 int create_tcp_ipv4_socket()
 {
@@ -39,7 +34,6 @@ struct sockaddr_in create_ipv4_address(char *ip, int port)
 
 struct accepted_socket accept_connection(int socket_fd, int timeout_ms)
 {
-    // create and zero-fill accepted socket struct
     struct accepted_socket accepted_socket;
 
     if (poll_read_event(socket_fd, timeout_ms) <= 0)

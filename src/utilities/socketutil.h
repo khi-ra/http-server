@@ -2,7 +2,9 @@
 #define SOCKETUTIL_H
 
 #include <arpa/inet.h>
+#include <err.h>
 #include <netinet/in.h>
+#include <poll.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
