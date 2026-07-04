@@ -8,7 +8,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY build)
 set(COMPILE_FLAGS -Wall -Wextra -g)
 
 add_executable(server src/server/server.c src/utilities/socketutil.c src/utilities/errorutil.c)
-add_executable(client src/client/client.c src/utilities/socketutil.c)
+add_executable(client src/client/client.c src/utilities/socketutil.c src/utilities/errorutil.c)
 
 target_include_directories(server PRIVATE src/utilities)
 target_include_directories(client PRIVATE src/utilities)
