@@ -1,7 +1,6 @@
+#include "../utilities/errorutil.h"
 #include "../utilities/socketutil.h"
-#include <asm-generic/errno-base.h>
 #include <errno.h>
-#include <error.h>
 #include <fcntl.h>
 #include <netinet/in.h>
 #include <signal.h>
@@ -22,46 +21,57 @@ void init_sigchld_action(struct sigaction *sigchld_action);
 int main()
 {
     int socket_fd;
-    struct sockaddr_in *address = NULL;
-    struct accepted_socket *accepted_socket;
+    struct sockaddr_in address;
+    struct accepted_socket accepted_socket;
     struct sigaction sigchld_action;
+    int setup_successful = 1;
 
-    // create server's TCP socket
-    create_ipv4_address(&address, "", 8080);
+    // create server endpoint of TCP socket
+    address = create_ipv4_address("", 8080);
     if ((socket_fd = create_tcp_ipv4_socket()) == -1)
-        error(EXIT_FAILURE, errno, "creating socket failed");
+    {
+        error_handler(errno, "creating socket failed");
+        setup_successful = 0;
+    }
+    else if (bind(socket_fd, (struct sockaddr *) &address, sizeof(struct sockaddr)) == -1)
+    {
+        error_handler(errno, "bind failed");
+        setup_successful = 0;
+    }
 
-    if (bind(socket_fd, (struct sockaddr *) address, sizeof(struct sockaddr)) == -1)
-        error(EXIT_FAILURE, errno, "bind failed");
-
-    printf("Server socket successfully created\n");
+    if (setup_successful)
+        printf("Server socket successfully created\n");
 
     if ((listen(socket_fd, MAXCONN)) == -1)
-        error(EXIT_FAILURE, errno, "listen failed");
+    {
+        error_handler(errno, "listen failed");
+        setup_successful = 0;
+    }
 
     // initialise a custom sigaction struct and set it as SIGCHLD's action
     init_sigchld_action(&sigchld_action);
     if (sigaction(SIGCHLD, &sigchld_action, NULL) == -1)
-        error(EXIT_FAILURE, errno, "sigaction failed");
+    {
+        error_handler(errno, "sigaction failed");
+        setup_successful = 0;
+    }
 
     // accept connections and handle connected client's requests
-    while (true)
+    while (setup_successful)
     {
-        printf("n_children: %d\n", n_children);
-
         // set the polling duration based on the number of active connections
         int timeout_ms = 0;
         if (n_children == 0)
-            timeout_ms = SOCKET_TIMEOUT_MS;
+            timeout_ms = SERVER_IDLE_TIMEOUT_MS;
         else if (n_children > 0)
             timeout_ms = -1;
 
         accepted_socket = accept_connection(socket_fd, timeout_ms);
 
-        if (!accepted_socket->accepted && timeout_ms > 0)
+        if (!accepted_socket.accepted && timeout_ms > 0)
             break;
 
-        if (accepted_socket->accepted)
+        if (accepted_socket.accepted)
         {
             printf("Connection successfully received\n");
 
@@ -71,7 +81,7 @@ int main()
                 // receive messages from connected peer and write them to stdout
                 while (true)
                 {
-                    int n_recv = recv_and_write_msg(accepted_socket);
+                    int n_recv = recv_and_write_msg(&accepted_socket);
 
                     if (n_recv == -1)
                     {
@@ -82,7 +92,7 @@ int main()
                             break;
                         }
 
-                        error(0, errno, "receive failed");
+                        error_handler(errno, "receive failed");
                     }
                     else if (n_recv == 0)
                         break;
@@ -90,24 +100,21 @@ int main()
 
                 printf("Closing connection for client %i\n", n_children);
 
-                close(accepted_socket->socket_fd);
-                free(accepted_socket);
+                close(accepted_socket.socket_fd);
+                close(socket_fd);
                 _exit(EXIT_SUCCESS);
             }
             else if (handler_pid > 0)
                 n_children++;
             else
-                error(0, errno, "fork failed");
+                error_handler(errno, "fork failed");
         }
     }
 
     printf("No active connections, closing server\n");
 
-    // close files and free memory
+    // cleanup
     close(socket_fd);
-    free(address);
-    if (accepted_socket)
-        free(accepted_socket);
 
     return 0;
 }

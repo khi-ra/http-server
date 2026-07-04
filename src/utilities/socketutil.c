@@ -1,51 +1,44 @@
 #include "socketutil.h"
-#include <err.h>
-#include <netinet/in.h>
-#include <poll.h>
-#include <stdbool.h>
-#include <stdlib.h>
 
 int create_tcp_ipv4_socket()
 {
-    int sock = socket(AF_INET, SOCK_STREAM, 0);
-
-    if (sock < 0)
-	return -1;
-
     struct timeval timeout;
     timeout.tv_sec = SOCKET_IDLE_TIMEOUT_S;
     timeout.tv_usec = 0;
 
-    if (setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0)
-	return -1;
+    int socket_fd = socket(AF_INET, SOCK_STREAM, 0);
+    int sockopt_flag = setsockopt(socket_fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
 
-    return sock;
+    if (socket_fd == -1 || sockopt_flag == -1)
+        return -1;
+
+    return socket_fd;
 }
 
-void create_ipv4_address(struct sockaddr_in **addr, char *ip, int port)
+struct sockaddr_in create_ipv4_address(char *ip, int port)
 {
-    *addr = realloc(*addr, sizeof(struct sockaddr_in));
+    struct sockaddr_in addr;
 
-    (*addr)->sin_family = AF_INET;
+    addr.sin_family = AF_INET;
 
     if (port)
-        (*addr)->sin_port = htons(port);
+        addr.sin_port = htons(port);
 
     if (strlen(ip) == 0) // listen for any ip address if none is specified
-        (*addr)->sin_addr.s_addr = INADDR_ANY;
+        addr.sin_addr.s_addr = INADDR_ANY;
     else
-        inet_pton(AF_INET, ip, &(*addr)->sin_addr.s_addr);
+        inet_pton(AF_INET, ip, &addr.sin_addr.s_addr);
+
+    return addr;
 }
 
-struct accepted_socket *accept_connection(int socket_fd, int timeout_ms)
+struct accepted_socket accept_connection(int socket_fd, int timeout_ms)
 {
-    // create and zero-fill accepted socket struct
-    struct accepted_socket *accepted_socket = malloc(sizeof(struct accepted_socket));
-    memset(accepted_socket, 0, sizeof(struct accepted_socket));
+    struct accepted_socket accepted_socket;
 
     if (poll_read_event(socket_fd, timeout_ms) <= 0)
     {
-        accepted_socket->accepted = false;
+        accepted_socket.accepted = false;
         return accepted_socket;
     }
 
@@ -54,9 +47,9 @@ struct accepted_socket *accept_connection(int socket_fd, int timeout_ms)
     socklen_t addr_size = sizeof(struct sockaddr_in);
     int fd = accept(socket_fd, (struct sockaddr *) &addr, &addr_size);
 
-    accepted_socket->socket_fd = fd;
-    accepted_socket->address = addr;
-    accepted_socket->accepted = accepted_socket->socket_fd > 0;
+    accepted_socket.socket_fd = fd;
+    accepted_socket.address = addr;
+    accepted_socket.accepted = accepted_socket.socket_fd > 0;
 
     return accepted_socket;
 }
