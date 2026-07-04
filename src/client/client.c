@@ -9,25 +9,29 @@ int read_input(char **line);
 int main()
 {
     struct sockaddr_in server_address;
+    int socket_fd;
+    char *line = NULL;
     int setup_successful = 1;
 
-    int socket_fd = create_tcp_ipv4_socket();
     server_address = create_ipv4_address("127.0.0.1", 8080);
-
-    // send connection request to server
-    if (connect(socket_fd, (struct sockaddr *) &server_address, sizeof(server_address)) == -1)
+    if ((socket_fd = create_tcp_ipv4_socket()) == -1)
+    {
+        error_handler(errno, "server socket creation failed");
+        setup_successful = 0;
+    }
+    else if (connect(socket_fd, (struct sockaddr *) &server_address, sizeof(server_address)) == -1)
     {
         error_handler(errno, "connect failed");
         setup_successful = 0;
     }
 
     if (setup_successful)
+    {
         printf("Connection was successful\n");
+        printf("Enter input to send to the server ('exit' to stop):\n");
+    }
 
     // read input from stdin and send to server
-    char *line = NULL;
-    printf("Enter input to send to the server ('exit' to stop):\n");
-
     while (setup_successful)
     {
         int n_read = read_input(&line);
@@ -44,7 +48,8 @@ int main()
 
     // cleanup
     close(socket_fd);
-    free(line);
+    if (line)
+        free(line);
     return 0;
 }
 
