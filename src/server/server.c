@@ -26,23 +26,22 @@ int main()
     struct sigaction sigchld_action;
     int setup_successful = 1;
 
-    // create server's TCP socket
+    // create server endpoint of TCP socket
     address = create_ipv4_address("", 8080);
     if ((socket_fd = create_tcp_ipv4_socket()) == -1)
     {
         error_handler(errno, "creating socket failed");
         setup_successful = 0;
     }
-
-    if (bind(socket_fd, (struct sockaddr *) &address, sizeof(struct sockaddr)) == -1)
+    else if (bind(socket_fd, (struct sockaddr *) &address, sizeof(struct sockaddr)) == -1)
     {
         error_handler(errno, "bind failed");
         setup_successful = 0;
     }
-    
+
     if (setup_successful)
         printf("Server socket successfully created\n");
-        
+
     if ((listen(socket_fd, MAXCONN)) == -1)
     {
         error_handler(errno, "listen failed");
@@ -63,7 +62,7 @@ int main()
         // set the polling duration based on the number of active connections
         int timeout_ms = 0;
         if (n_children == 0)
-            timeout_ms = SOCKET_TIMEOUT_MS;
+            timeout_ms = SERVER_IDLE_TIMEOUT_MS;
         else if (n_children > 0)
             timeout_ms = -1;
 
