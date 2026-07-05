@@ -1,5 +1,7 @@
 #include "socketutil.h"
 
+int poll_read_events(int socket_fd, int duration_ms);
+
 int create_tcp_ipv4_socket()
 {
     struct timeval timeout;
@@ -37,7 +39,7 @@ struct accepted_socket accept_connection(int socket_fd, int timeout_ms)
     struct sockaddr_in addr;
     socklen_t addr_size = sizeof(struct sockaddr_in);
 
-    if (poll_read_event(socket_fd, timeout_ms) <= 0)
+    if (poll_read_events(socket_fd, timeout_ms) <= 0)
     {
         accepted_socket.accepted = false;
         return accepted_socket;
@@ -52,7 +54,10 @@ struct accepted_socket accept_connection(int socket_fd, int timeout_ms)
     return accepted_socket;
 }
 
-int poll_read_event(int socket_fd, int duration_ms)
+/* Poll for read events on SOCKET_FD for DURATION_MS.
+ * Upon success, return the number of file descriptors with events.
+ * Otherwise, return 0 if timed out or -1 for error. */
+int poll_read_events(int socket_fd, int duration_ms)
 {
     // initialise poll request struct for read events
     struct pollfd pfd;

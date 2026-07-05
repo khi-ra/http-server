@@ -14,7 +14,7 @@
 /* How long to wait for a connection in idle before shutting down. */
 static const int SERVER_IDLE_TIMEOUT_MS = 5000;
 
-/* How long to idle an active connection before closing. */
+/* How long to idle an active connection before closing it. */
 static const int SOCKET_IDLE_TIMEOUT_S = 60;
 
 struct accepted_socket
@@ -34,10 +34,5 @@ struct sockaddr_in create_ipv4_address(char *ip, int port);
  * If a connection is received, create and return an accepted_socket
  * struct. Otherwise, return NULL. */
 struct accepted_socket accept_connection(int socket_fd, int timeout_ms);
-
-/* Poll for read events on SOCKET_FD for DURATION_MS.
- * Upon success, return the number of file descriptors with events.
- * Otherwise, return 0 if timed out or -1 for error. */
-int poll_read_event(int socket_fd, int duration_ms);
 
 #endif
