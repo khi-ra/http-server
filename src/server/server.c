@@ -13,7 +13,7 @@
 #define MAXCONN 5
 #define BUFFSIZE 1024
 
-int n_children = 0;
+int n_connections = 0;
 
 void sigchld_handler(int sig_num);
 void init_sigchld_action(struct sigaction *sigchld_action);
@@ -63,9 +63,9 @@ int main()
     {
         // set the polling duration based on the number of active connections
         int timeout_ms = 0;
-        if (n_children == 0)
+        if (n_connections == 0)
             timeout_ms = SERVER_IDLE_TIMEOUT_MS;
-        else if (n_children > 0)
+        else if (n_connections > 0)
             timeout_ms = -1;
 
         accepted_socket = accept_connection(socket_fd, timeout_ms);
@@ -95,13 +95,13 @@ int main()
                         // check if connection timed out
                         if (errno == EAGAIN || errno == EWOULDBLOCK)
                         {
-                            printf("Client %i idle timeout\n", n_children);
+                            printf("Client %i idle timeout\n", n_connections);
                             break;
                         }
                         error_handler(errno, "receive failed");
                     }
                 }
-                printf("Closing connection for client %i\n", n_children);
+                printf("Closing connection for client %i\n", n_connections);
 
                 // child process cleanup
                 close(accepted_socket.socket_fd);
@@ -109,7 +109,7 @@ int main()
                 _exit(EXIT_SUCCESS);
             }
             else if (handler_pid > 0)
-                n_children++;
+                n_connections++;
             else
                 error_handler(errno, "fork failed");
         }
@@ -121,7 +121,7 @@ int main()
     return 0;
 }
 
-/* Receive message from SOCK_FD. Return number of bytes received
+/* Read message received on SOCK_FD. Return number of bytes received
  * or -1 for error. */
 int receive_msg(struct accepted_socket *accepted_socket, char *buffer)
 {
@@ -133,7 +133,7 @@ int receive_msg(struct accepted_socket *accepted_socket, char *buffer)
     return n_recv;
 }
 
-/* Write message in BUFFER to stdout in the format "IP:PORT = BUFFER".  */
+/* Write message in BUFFER to stdout in the format "IP:PORT = BUFFER". */
 void write_msg(struct accepted_socket *accepted_socket, char *buffer)
 {
     char ip[INET_ADDRSTRLEN];
@@ -155,7 +155,7 @@ void sigchld_handler(int sig_num)
     int saved_errno = errno;
 
     while (waitpid(-1, NULL, WNOHANG) > 0)
-        n_children--;
+        n_connections--;
 
     errno = saved_errno;
 }
