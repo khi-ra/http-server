@@ -15,7 +15,6 @@
 
 int n_children = 0;
 
-int recv_and_write_msg(struct accepted_socket *accepted_socket);
 void sigchld_handler(int sig_num);
 void init_sigchld_action(struct sigaction *sigchld_action);
 int receive_msg(struct accepted_socket *accepted_socket, char *buffer);
