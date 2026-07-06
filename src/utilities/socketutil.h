@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <unistd.h>
 
 /* How long to wait for a connection in idle before shutting down. */
 static const int SERVER_IDLE_TIMEOUT_MS = 5000;

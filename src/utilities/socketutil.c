@@ -7,12 +7,17 @@ int create_tcp_ipv4_socket()
     struct timeval timeout;
     timeout.tv_sec = SOCKET_IDLE_TIMEOUT_S;
     timeout.tv_usec = 0;
+    int socket_fd;
 
-    int socket_fd = socket(AF_INET, SOCK_STREAM, 0);
-    int sockopt_flag = setsockopt(socket_fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
-
-    if (socket_fd == -1 || sockopt_flag == -1)
+    if ((socket_fd = socket(AF_INET, SOCK_STREAM, 0)) == -1)
         return -1;
+
+    // avoid leaking socket_fd if socket() succeeds but setsockopt() fails
+    if (setsockopt(socket_fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) == -1)
+    {
+        close(socket_fd);
+        return -1;
+    }
 
     return socket_fd;
 }
