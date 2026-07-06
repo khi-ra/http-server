@@ -1,16 +1,23 @@
 #include "socketutil.h"
 
+int poll_read_events(int socket_fd, int duration_ms);
+
 int create_tcp_ipv4_socket()
 {
     struct timeval timeout;
     timeout.tv_sec = SOCKET_IDLE_TIMEOUT_S;
     timeout.tv_usec = 0;
+    int socket_fd;
 
-    int socket_fd = socket(AF_INET, SOCK_STREAM, 0);
-    int sockopt_flag = setsockopt(socket_fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
-
-    if (socket_fd == -1 || sockopt_flag == -1)
+    if ((socket_fd = socket(AF_INET, SOCK_STREAM, 0)) == -1)
         return -1;
+
+    // avoid leaking socket_fd if socket() succeeds but setsockopt() fails
+    if (setsockopt(socket_fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) == -1)
+    {
+        close(socket_fd);
+        return -1;
+    }
 
     return socket_fd;
 }
@@ -18,7 +25,6 @@ int create_tcp_ipv4_socket()
 struct sockaddr_in create_ipv4_address(char *ip, int port)
 {
     struct sockaddr_in addr;
-
     addr.sin_family = AF_INET;
 
     if (port)
@@ -35,18 +41,17 @@ struct sockaddr_in create_ipv4_address(char *ip, int port)
 struct accepted_socket accept_connection(int socket_fd, int timeout_ms)
 {
     struct accepted_socket accepted_socket;
+    struct sockaddr_in addr;
+    socklen_t addr_size = sizeof(struct sockaddr_in);
 
-    if (poll_read_event(socket_fd, timeout_ms) <= 0)
+    if (poll_read_events(socket_fd, timeout_ms) <= 0)
     {
         accepted_socket.accepted = false;
         return accepted_socket;
     }
 
     // accept connection
-    struct sockaddr_in addr;
-    socklen_t addr_size = sizeof(struct sockaddr_in);
     int fd = accept(socket_fd, (struct sockaddr *) &addr, &addr_size);
-
     accepted_socket.socket_fd = fd;
     accepted_socket.address = addr;
     accepted_socket.accepted = accepted_socket.socket_fd > 0;
@@ -54,14 +59,17 @@ struct accepted_socket accept_connection(int socket_fd, int timeout_ms)
     return accepted_socket;
 }
 
-int poll_read_event(int socket_fd, int duration_ms)
+/* Poll for read events on SOCKET_FD for DURATION_MS.
+ * Upon success, return the number of file descriptors with events.
+ * Otherwise, return 0 if timed out or -1 for error. */
+int poll_read_events(int socket_fd, int duration_ms)
 {
-    // initialise poll file descriptor struct for read events
+    // initialise poll request struct for read events
     struct pollfd pfd;
     pfd.fd = socket_fd;
     pfd.events = POLLIN;
 
-    // wait duration milliseconds for read events
+    // wait duration_ms milliseconds for read events
     int poll_fds = poll(&pfd, 1, duration_ms);
     return poll_fds;
 }

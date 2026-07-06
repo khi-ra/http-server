@@ -10,11 +10,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <unistd.h>
 
 /* How long to wait for a connection in idle before shutting down. */
 static const int SERVER_IDLE_TIMEOUT_MS = 5000;
 
-/* How long to idle an active connection before closing. */
+/* How long to idle an active connection before closing it. */
 static const int SOCKET_IDLE_TIMEOUT_S = 60;
 
 struct accepted_socket
@@ -31,13 +32,8 @@ int create_tcp_ipv4_socket();
 struct sockaddr_in create_ipv4_address(char *ip, int port);
 
 /* Await a connection on SOCKET_FD for TIMEOUT_MS. If TIMEOUT_MS = -1, wait indefinitely.
- * If a connection is received, create and return a pointer to struct
- * accepted_socket. Otherwise, return NULL. */
+ * Return `accepted_socket` with a positive fd and `.accepted` set to true on success,
+ * or a negative fd and `.accepted` set to false on error or timeout. */
 struct accepted_socket accept_connection(int socket_fd, int timeout_ms);
-
-/* Poll for read events on SOCKET_FD for DURATION_MS.
- * Upon success, return the number of file descriptors with events.
- * Otherwise, return 0 if timed out or -1 for error. */
-int poll_read_event(int socket_fd, int duration_ms);
 
 #endif

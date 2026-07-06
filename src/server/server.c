@@ -11,12 +11,14 @@
 #include <unistd.h>
 
 #define MAXCONN 5
+#define BUFFSIZE 1024
 
-int n_children = 0;
+int n_connections = 0;
 
-int recv_and_write_msg(struct accepted_socket *accepted_socket);
 void sigchld_handler(int sig_num);
 void init_sigchld_action(struct sigaction *sigchld_action);
+int receive_msg(struct accepted_socket *accepted_socket, char *buffer);
+void write_msg(struct accepted_socket *accepted_socket, char *buffer);
 
 int main()
 {
@@ -61,9 +63,9 @@ int main()
     {
         // set the polling duration based on the number of active connections
         int timeout_ms = 0;
-        if (n_children == 0)
+        if (n_connections == 0)
             timeout_ms = SERVER_IDLE_TIMEOUT_MS;
-        else if (n_children > 0)
+        else if (n_connections > 0)
             timeout_ms = -1;
 
         accepted_socket = accept_connection(socket_fd, timeout_ms);
@@ -81,65 +83,67 @@ int main()
                 // receive messages from connected peer and write them to stdout
                 while (true)
                 {
-                    int n_recv = recv_and_write_msg(&accepted_socket);
+                    char buffer[BUFFSIZE + 1];
+                    int n_recv = receive_msg(&accepted_socket, buffer);
 
-                    if (n_recv == -1)
+                    if (n_recv > 0)
+                        write_msg(&accepted_socket, buffer);
+                    else if (n_recv == 0)
+                        break;
+                    else
                     {
                         // check if connection timed out
                         if (errno == EAGAIN || errno == EWOULDBLOCK)
                         {
-                            printf("Client %i idle timeout\n", n_children);
+                            printf("Client %i idle timeout\n", n_connections);
                             break;
                         }
-
                         error_handler(errno, "receive failed");
                     }
-                    else if (n_recv == 0)
-                        break;
                 }
+                printf("Closing connection for client %i\n", n_connections);
 
-                printf("Closing connection for client %i\n", n_children);
-
+                // child process cleanup
                 close(accepted_socket.socket_fd);
                 close(socket_fd);
                 _exit(EXIT_SUCCESS);
             }
             else if (handler_pid > 0)
-                n_children++;
+                n_connections++;
             else
                 error_handler(errno, "fork failed");
         }
     }
-
     printf("No active connections, closing server\n");
 
     // cleanup
     close(socket_fd);
-
     return 0;
 }
 
-/* Receive message from SOCK_FD and print it to stdout. Return number
- * of bytes received or -1 for error. */
-int recv_and_write_msg(struct accepted_socket *accepted_socket)
+/* Read message received on SOCK_FD. Return number of bytes received
+ * or -1 for error. */
+int receive_msg(struct accepted_socket *accepted_socket, char *buffer)
 {
-    char buffer[1024];
-    int n_recv = recv(accepted_socket->socket_fd, buffer, sizeof(buffer), 0);
+    int n_recv = recv(accepted_socket->socket_fd, buffer, BUFFSIZE, 0);
 
     if (n_recv > 0)
-    {
-        char ip[INET_ADDRSTRLEN];
-        short port;
-
-        // convert ip and port to human readable format
-        inet_ntop(accepted_socket->address.sin_family, &accepted_socket->address.sin_addr.s_addr, ip, sizeof(ip));
-        port = ntohs(accepted_socket->address.sin_port);
-
         buffer[n_recv] = 0;
-        printf("Message from %s:%hu = %s \n", ip, port, buffer);
-    }
 
     return n_recv;
+}
+
+/* Write message in BUFFER to stdout in the format "IP:PORT = BUFFER". */
+void write_msg(struct accepted_socket *accepted_socket, char *buffer)
+{
+    char ip[INET_ADDRSTRLEN];
+    short port;
+
+    // convert ip and port to human readable format
+    inet_ntop(accepted_socket->address.sin_family, &accepted_socket->address.sin_addr.s_addr, ip, sizeof(ip));
+    port = ntohs(accepted_socket->address.sin_port);
+
+    printf("Message from %s:%hu = %s \n", ip, port, buffer);
 }
 
 /* Custom handler for signal SIGCHLD. */
@@ -151,7 +155,7 @@ void sigchld_handler(int sig_num)
     int saved_errno = errno;
 
     while (waitpid(-1, NULL, WNOHANG) > 0)
-        n_children--;
+        n_connections--;
 
     errno = saved_errno;
 }
