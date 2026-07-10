@@ -15,6 +15,9 @@
 #define MAXCONN 5
 #define BUFFSIZE 1024
 
+/* How long to wait for a connection in idle before shutting down. */
+static const int SERVER_IDLE_TIMEOUT_MS = 5000;
+
 struct server
 {
     int socket_fd;

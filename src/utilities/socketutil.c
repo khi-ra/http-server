@@ -1,7 +1,5 @@
 #include "socketutil.h"
 
-int poll_read_events(int socket_fd, int duration_ms);
-
 int create_tcp_ipv4_socket()
 {
     struct timeval timeout;
@@ -36,19 +34,4 @@ struct sockaddr_in create_ipv4_address(char *ip, int port)
         inet_pton(AF_INET, ip, &addr.sin_addr.s_addr);
 
     return addr;
-}
-
-/* Poll for read events on SOCKET_FD for DURATION_MS.
- * Upon success, return the number of file descriptors with events.
- * Otherwise, return 0 if timed out or -1 for error. */
-int poll_read_events(int socket_fd, int duration_ms)
-{
-    // initialise poll request struct for read events
-    struct pollfd pfd;
-    pfd.fd = socket_fd;
-    pfd.events = POLLIN;
-
-    // wait duration_ms milliseconds for read events
-    int poll_fds = poll(&pfd, 1, duration_ms);
-    return poll_fds;
 }
