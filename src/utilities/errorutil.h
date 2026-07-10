@@ -20,4 +20,6 @@ enum error_codes
  * If ERRNUM is zero, print MSG followed by a colon and a space. */
 void error_handler(int errnum, const char *err_msg);
 
+const char *err_str(int errnum);
+
 #endif
