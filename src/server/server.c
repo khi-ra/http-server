@@ -209,7 +209,7 @@ int main()
 
     int setup_result = setup(&server, "", 8080);
     if (setup_result == -1)
-        goto err_out;
+        goto error_out;
 
     // create a pollfd struct for the socket file and events file
     struct pollfd polled_files[2] = {
@@ -223,75 +223,71 @@ int main()
     {
         // poll socket and event file
         bool connection_received = false;
-        bool server_timed_out = false;
-        while (!connection_received && !server_timed_out)
+        while (!connection_received)
         {
-            bool connection_received = false;
-            while (!connection_received)
+            // prevent the server indefinitely idling on 0 connections
+            int poll_time_ms;
+            if (count_connections > 0)
+                poll_time_ms = INDEFINITE;
+            else
+                poll_time_ms = SERVER_IDLE_TIMEOUT_MS;
+
+            int poll_result = poll(polled_files, polled_files_len, poll_time_ms);
+
+            // exit program if server timed out
+            if (poll_result == 0)
+                goto out;
+
+            if (poll_result == -1)
             {
-                // prevent the server indefinitely idling on 0 connections
-                int poll_time_ms;
-                if (count_connections > 0)
-                    poll_time_ms = INDEFINITE;
-                else
-                    poll_time_ms = SERVER_IDLE_TIMEOUT_MS;
+                errnum = ERR_POLL;
+                goto error_out;
+            }
 
-                int poll_result = poll(polled_files, polled_files_len, poll_time_ms);
+            struct pollfd file; // placeholder to help with readability
+            for (int i = 0; i < polled_files_len; i++)
+            {
+                file = polled_files[i];
+                bool event_on_file = file.revents & POLLIN;
 
-                // exit program if server timed out
-                if (poll_result == 0)
-                    goto out;
-
-                if (poll_result == -1)
+                if (event_on_file)
                 {
-                    errnum = ERR_POLL;
-                    goto error_out;
-                }
-
-                struct pollfd file; // placeholder to help with readability
-                for (int i = 0; i < polled_files_len; i++)
-                {
-                    file = polled_files[i];
-                    bool event_on_file = file.revents & POLLIN;
-
-                    if (event_on_file)
+                    if (file.fd == server.socket_fd)
+                        connection_received = true;
+                    else if (file.fd == server.event_fd)
                     {
-                        if (file.fd == server.socket_fd)
-                            connection_received = true;
-                        else if (file.fd == server.event_fd)
+                        int64_t count_closed;
+                        if (read(server.event_fd, &count_closed, sizeof(count_closed)) == -1)
                         {
-                            int64_t count_closed;
-                            if (read(server.event_fd, &count_closed, sizeof(count_closed)) == -1)
-                            {
-                                errnum = ERR_EVENTFD;
-                                goto error_out;
-                            }
-                            count_connections -= count_closed;
+                            errnum = ERR_EVENTFD;
+                            goto error_out;
                         }
+                        count_connections -= count_closed;
                     }
                 }
             }
-
-            struct accepted_socket client_socket = accept_connection(server.socket_fd);
-            if (client_socket.accepted)
-            {
-                struct connection *t_data = create_thread_data(&server, &client_socket);
-
-                errno = create_detached_thread(thread_handle_connection, t_data);
-                if (errno != 0)
-                    goto error_free_conn;
-
-                printf("Connection successfully received\n");
-                count_connections++;
-            }
         }
 
-    error_free_conn:
-        free(connection);
-    error_out:
-        error_handler(errno, err_str(errnum));
-    out:
-        printf("No active connections, closing server...\n");
-        close(server.socket_fd);
-        close(server.event_fd);
+        struct accepted_socket client_socket = accept_connection(server.socket_fd);
+        if (client_socket.accepted)
+        {
+            struct connection *t_data = create_thread_data(&server, &client_socket);
+
+            errno = create_detached_thread(thread_handle_connection, t_data);
+            if (errno != 0)
+                goto error_free_conn;
+
+            printf("Connection successfully received\n");
+            count_connections++;
+        }
     }
+
+error_free_conn:
+    free(connection);
+error_out:
+    error_handler(errno, err_str(errnum));
+out:
+    printf("No active connections, closing server...\n");
+    close(server.socket_fd);
+    close(server.event_fd);
+}
