@@ -35,6 +35,7 @@ struct connection
     struct accepted_socket client_socket;
 };
 
+int setup(struct server *server, char *ip, int port);
 struct accepted_socket accept_connection(int socket_fd);
 
 static int create_detached_thread(void *subroutine, void *subroutine_arg);
@@ -43,6 +44,48 @@ static struct connection *create_thread_data(int efd, struct accepted_socket cli
 
 int receive_msg(struct accepted_socket *accepted_socket, char *buffer);
 void write_msg(struct accepted_socket *accepted_socket, char *buffer);
+
+int setup(struct server *server, char *ip, int port)
+{
+    int event_fd;
+    int socket_fd;
+    struct sockaddr_in address;
+    int setup_successful = 1;
+
+    event_fd = eventfd(0, EFD_NONBLOCK);
+    if (event_fd == -1)
+    {
+        error_handler(errno, "creating events file failed");
+        setup_successful = 0;
+    }
+
+    address = create_ipv4_address(ip, port);
+    if ((socket_fd = create_tcp_ipv4_socket()) == -1)
+    {
+        error_handler(errno, "creating socket failed");
+        setup_successful = 0;
+    }
+    else if (bind(socket_fd, (struct sockaddr *) &address, sizeof(struct sockaddr)) == -1)
+    {
+        error_handler(errno, "bind failed");
+        setup_successful = 0;
+    }
+
+    if ((listen(socket_fd, MAXCONN)) == -1)
+    {
+        error_handler(errno, "listen failed");
+        setup_successful = 0;
+    }
+
+    if (setup_successful)
+    {
+        server->socket_fd = socket_fd;
+        server->event_fd = event_fd;
+        server->address = address;
+    }
+
+    return setup_successful;
+}
 
 struct accepted_socket accept_connection(int socket_fd)
 {
@@ -152,47 +195,13 @@ void write_msg(struct accepted_socket *accepted_socket, char *buffer)
 
 int main()
 {
-    int event_fd;
-    int socket_fd;
-    struct sockaddr_in address;
     struct server server;
     struct accepted_socket client_socket;
-    int setup_successful = 1;
+    int setup_successful;
 
-    // to enable communication between the main thread and worker threads
-    event_fd = eventfd(0, EFD_NONBLOCK);
-    if (event_fd == -1)
-    {
-        error_handler(errno, "creating events file failed");
-        setup_successful = 0;
-    }
-
-    // create server endpoint of TCP socket
-    address = create_ipv4_address("", 8080);
-    if ((socket_fd = create_tcp_ipv4_socket()) == -1)
-    {
-        error_handler(errno, "creating socket failed");
-        setup_successful = 0;
-    }
-    else if (bind(socket_fd, (struct sockaddr *) &address, sizeof(struct sockaddr)) == -1)
-    {
-        error_handler(errno, "bind failed");
-        setup_successful = 0;
-    }
-
-    if ((listen(socket_fd, MAXCONN)) == -1)
-    {
-        error_handler(errno, "listen failed");
-        setup_successful = 0;
-    }
-
+    setup_successful = setup(&server, "", 8080);
     if (setup_successful)
-    {
-        printf("Server socket successfully created\n");
-        server.socket_fd = socket_fd;
-        server.event_fd = event_fd;
-        server.address = address;
-    }
+        printf("Socket successfully created");
 
     // create a pollfd struct for the socket file and events file
     struct pollfd polled_files[2] = {
