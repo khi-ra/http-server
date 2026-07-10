@@ -38,20 +38,6 @@ struct sockaddr_in create_ipv4_address(char *ip, int port)
     return addr;
 }
 
-struct accepted_socket accept_connection(int socket_fd)
-{
-    struct accepted_socket accepted_socket;
-    struct sockaddr_in addr;
-    socklen_t addr_size = sizeof(struct sockaddr_in);
-
-    int fd = accept(socket_fd, (struct sockaddr *) &addr, &addr_size);
-    accepted_socket.socket_fd = fd;
-    accepted_socket.address = addr;
-    accepted_socket.accepted = accepted_socket.socket_fd > 0;
-
-    return accepted_socket;
-}
-
 /* Poll for read events on SOCKET_FD for DURATION_MS.
  * Upon success, return the number of file descriptors with events.
  * Otherwise, return 0 if timed out or -1 for error. */

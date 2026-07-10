@@ -15,11 +15,27 @@
 #define MAXCONN 5
 #define BUFFSIZE 1024
 
+struct server
+{
+    int socket_fd;
+    int event_fd;
+    struct sockaddr_in address;
+};
+
+struct accepted_socket
+{
+    int socket_fd;
+    struct sockaddr_in address;
+    bool accepted;
+};
+
 struct connection
 {
-    int event_fd;
+    struct server server;
     struct accepted_socket client_socket;
 };
+
+struct accepted_socket accept_connection(int socket_fd);
 
 static int create_detached_thread(void *subroutine, void *subroutine_arg);
 static void *thread_handle_connection(void *args);
@@ -27,6 +43,20 @@ static struct connection *create_thread_data(int efd, struct accepted_socket cli
 
 int receive_msg(struct accepted_socket *accepted_socket, char *buffer);
 void write_msg(struct accepted_socket *accepted_socket, char *buffer);
+
+struct accepted_socket accept_connection(int socket_fd)
+{
+    struct accepted_socket accepted_socket;
+    struct sockaddr_in addr;
+    socklen_t addr_size = sizeof(struct sockaddr_in);
+
+    int fd = accept(socket_fd, (struct sockaddr *) &addr, &addr_size);
+    accepted_socket.socket_fd = fd;
+    accepted_socket.address = addr;
+    accepted_socket.accepted = accepted_socket.socket_fd > 0;
+
+    return accepted_socket;
+}
 
 /* Create and detach a thread, assigning it the execution of SUBROUTINE
  * with argument SUBROUTINE_ARG.
@@ -52,7 +82,7 @@ static int create_detached_thread(void *subroutine, void *subroutine_arg)
 static struct connection *create_thread_data(int efd, struct accepted_socket client_socket)
 {
     struct connection *t_data = malloc(sizeof(struct connection));
-    t_data->event_fd = efd;
+    t_data->server.event_fd = efd;
     t_data->client_socket = client_socket;
 
     return t_data;
@@ -86,7 +116,7 @@ static void *thread_handle_connection(void *args)
 
     // notify main thread about closing connection
     uint64_t exit_signal = 1;
-    if (write(connection_data->event_fd, &exit_signal, sizeof(exit_signal)) == -1)
+    if (write(connection_data->server.event_fd, &exit_signal, sizeof(exit_signal)) == -1)
         error_handler(errno, "write to event file failed");
 
     printf("[thread id: %lu] Shutting down...\n", pthread_self());
@@ -125,6 +155,7 @@ int main()
     int event_fd;
     int socket_fd;
     struct sockaddr_in address;
+    struct server server;
     struct accepted_socket client_socket;
     int setup_successful = 1;
 
@@ -149,19 +180,24 @@ int main()
         setup_successful = 0;
     }
 
-    if (setup_successful)
-        printf("Server socket successfully created\n");
-
     if ((listen(socket_fd, MAXCONN)) == -1)
     {
         error_handler(errno, "listen failed");
         setup_successful = 0;
     }
 
+    if (setup_successful)
+    {
+        printf("Server socket successfully created\n");
+        server.socket_fd = socket_fd;
+        server.event_fd = event_fd;
+        server.address = address;
+    }
+
     // create a pollfd struct for the socket file and events file
     struct pollfd polled_files[2] = {
-        {.fd = socket_fd, .events = POLLIN},
-        {.fd = event_fd, .events = POLLIN},
+        {.fd = server.socket_fd, .events = POLLIN},
+        {.fd = server.event_fd, .events = POLLIN},
     };
     int polled_files_len = sizeof(polled_files) / sizeof(polled_files[0]);
 
@@ -199,13 +235,13 @@ int main()
 
                     if (event_received)
                     {
-                        if (file.fd == socket_fd)
+                        if (file.fd == server.socket_fd)
                             connection_received = true;
-                        else if (file.fd == event_fd)
+                        else if (file.fd == server.event_fd)
                         {
                             // read counter from events file and decrement number of connections
                             uint64_t count_closed;
-                            if (read(event_fd, &count_closed, sizeof(count_closed)) == -1)
+                            if (read(file.fd, &count_closed, sizeof(count_closed)) == -1)
                             {
                                 error_handler(errno, "read from events file failed");
                                 server_timed_out = true; // to break current and outer loop
