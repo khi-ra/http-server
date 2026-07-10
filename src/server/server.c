@@ -22,9 +22,32 @@ struct connection
     struct accepted_socket client_socket;
 };
 
+static int create_detached_thread(void *subroutine, void *subroutine_arg);
 static void *thread_handle_connection(void *args);
+
 int receive_msg(struct accepted_socket *accepted_socket, char *buffer);
 void write_msg(struct accepted_socket *accepted_socket, char *buffer);
+
+/* Create and detach a thread, assigning it the execution of SUBROUTINE
+ * with argument SUBROUTINE_ARG.
+ *
+ * Return 0 on success or a non-zero error number on error.
+ */
+static int create_detached_thread(void *subroutine, void *subroutine_arg)
+{
+    pthread_t thread_id;
+    int errnum;
+
+    errnum = pthread_create(&thread_id, NULL, subroutine, subroutine_arg);
+    if (errnum != 0)
+        return -1;
+
+    errnum = pthread_detach(thread_id);
+    if (errnum != 0)
+        return -1;
+
+    return errnum;
+}
 
 /* Receive messages from connecting peer and write them to stdout.
  * To be assigned to a thread upon creation. */
