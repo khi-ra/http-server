@@ -4,7 +4,6 @@
 #include <fcntl.h>
 #include <netinet/in.h>
 #include <pthread.h>
-#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/socket.h>
@@ -90,12 +89,37 @@ static void *thread_handle_connection(void *args)
     pthread_exit(NULL);
 }
 
+/* Read message received on SOCK_FD. Return number of bytes received
+ * or -1 for error. */
+int receive_msg(struct accepted_socket *accepted_socket, char *buffer)
+{
+    int n_recv = recv(accepted_socket->socket_fd, buffer, BUFFSIZE, 0);
+
+    if (n_recv > 0)
+        buffer[n_recv] = 0;
+
+    return n_recv;
+}
+
+/* Write message in BUFFER to stdout in the format "IP:PORT = BUFFER". */
+void write_msg(struct accepted_socket *accepted_socket, char *buffer)
+{
+    char ip[INET_ADDRSTRLEN];
+    short port;
+
+    // convert ip and port to human readable format
+    inet_ntop(accepted_socket->address.sin_family, &accepted_socket->address.sin_addr.s_addr, ip, sizeof(ip));
+    port = ntohs(accepted_socket->address.sin_port);
+
+    printf("Message from %s:%hu = %s \n", ip, port, buffer);
+}
+
 int main()
 {
+    int event_fd;
     int socket_fd;
     struct sockaddr_in address;
-    struct accepted_socket accepted_socket;
-    struct sigaction sigchld_action;
+    struct accepted_socket client_socket;
     int setup_successful = 1;
 
     // create server endpoint of TCP socket
@@ -130,80 +154,31 @@ int main()
         else if (n_connections > 0)
             timeout_ms = -1;
 
-        accepted_socket = accept_connection(socket_fd, timeout_ms);
+        struct accepted_socket client_socket = accept_connection(socket_fd, timeout_ms);
 
-        if (!accepted_socket.accepted && timeout_ms > 0)
+        if (!client_socket.accepted && timeout_ms > 0)
             break;
 
-        if (accepted_socket.accepted)
+        if (client_socket.accepted)
         {
-            printf("Connection successfully received\n");
-
-            pid_t handler_pid = fork();
-            if (handler_pid == 0)
+            struct connection *t_data = create_thread_data(event_fd, client_socket);
+            int errnum = create_detached_thread(thread_handle_connection, t_data);
+            if (errnum != 0)
             {
-                // receive messages from connected peer and write them to stdout
-                while (true)
-                {
-                    char buffer[BUFFSIZE + 1];
-                    int n_recv = receive_msg(&accepted_socket, buffer);
-
-                    if (n_recv > 0)
-                        write_msg(&accepted_socket, buffer);
-                    else if (n_recv == 0)
-                        break;
-                    else
-                    {
-                        // check if connection timed out
-                        if (errno == EAGAIN || errno == EWOULDBLOCK)
-                        {
-                            printf("Client %i idle timeout\n", n_connections);
-                            break;
-                        }
-                        error_handler(errno, "receive failed");
-                    }
-                }
-                printf("Closing connection for client %i\n", n_connections);
-
-                // child process cleanup
-                close(accepted_socket.socket_fd);
-                close(socket_fd);
-                _exit(EXIT_SUCCESS);
+                error_handler(errnum, "creating thread failed");
+                free(t_data);
             }
-            else if (handler_pid > 0)
-                n_connections++;
             else
-                error_handler(errno, "fork failed");
+            {
+                printf("Connection successfully received\n");
+                n_connections++;
+            }
         }
     }
     printf("No active connections, closing server\n");
 
     // cleanup
     close(socket_fd);
+    close(event_fd);
     return 0;
-}
-
-/* Read message received on SOCK_FD. Return number of bytes received
- * or -1 for error. */
-int receive_msg(struct accepted_socket *accepted_socket, char *buffer)
-{
-    int n_recv = recv(accepted_socket->socket_fd, buffer, BUFFSIZE, 0);
-
-    if (n_recv > 0)
-        buffer[n_recv] = 0;
-
-    return n_recv;
-}
-
-/* Write message in BUFFER to stdout in the format "IP:PORT = BUFFER". */
-void write_msg(struct accepted_socket *accepted_socket, char *buffer)
-{
-    char ip[INET_ADDRSTRLEN];
-    short port;
-
-    // convert ip and port to human readable format
-    inet_ntop(accepted_socket->address.sin_family, &accepted_socket->address.sin_addr.s_addr, ip, sizeof(ip));
-    port = ntohs(accepted_socket->address.sin_port);
-
-    printf("Message from %s:%hu = %s \n", ip, port, buffer);
 }
