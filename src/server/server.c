@@ -43,7 +43,7 @@ struct accepted_socket accept_connection(int socket_fd);
 
 static int create_detached_thread(void *subroutine, void *subroutine_arg);
 static void *thread_handle_connection(void *args);
-static struct connection *create_thread_data(int efd, struct accepted_socket client_socket);
+static struct connection *create_thread_data(struct server *server, struct accepted_socket *client_socket);
 
 int receive_msg(struct accepted_socket *accepted_socket, char *buffer);
 void write_msg(struct accepted_socket *accepted_socket, char *buffer);
@@ -125,11 +125,11 @@ static int create_detached_thread(void *subroutine, void *subroutine_arg)
     return errnum;
 }
 
-static struct connection *create_thread_data(int efd, struct accepted_socket client_socket)
+static struct connection *create_thread_data(struct server *server, struct accepted_socket *client_socket)
 {
     struct connection *t_data = malloc(sizeof(struct connection));
-    t_data->server.event_fd = efd;
-    t_data->client_socket = client_socket;
+    t_data->server = *server;
+    t_data->client_socket = *client_socket;
 
     return t_data;
 }
@@ -270,11 +270,11 @@ int main()
             break;
 
         if (connection_received)
-            client_socket = accept_connection(socket_fd);
+            client_socket = accept_connection(server.socket_fd);
 
         if (client_socket.accepted)
         {
-            struct connection *t_data = create_thread_data(event_fd, client_socket);
+            struct connection *t_data = create_thread_data(&server, &client_socket);
             int errnum = create_detached_thread(thread_handle_connection, t_data);
             if (errnum != 0)
             {
@@ -291,7 +291,7 @@ int main()
     printf("No active connections, closing server\n");
 
     // cleanup
-    close(socket_fd);
-    close(event_fd);
+    close(server.socket_fd);
+    close(server.event_fd);
     return 0;
 }
