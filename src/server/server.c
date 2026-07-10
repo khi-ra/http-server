@@ -84,8 +84,14 @@ static void *thread_handle_connection(void *args)
         write_msg(&connection_data->client_socket, buffer);
     }
 
+    // notify main thread about closing connection
+    uint64_t exit_signal = 1;
+    if (write(connection_data->event_fd, &exit_signal, sizeof(exit_signal)) == -1)
+        error_handler(errno, "write to event file failed");
+
     printf("[thread id: %lu] Shutting down...\n", pthread_self());
     close(connection_data->client_socket.socket_fd);
+    free(connection_data);
     pthread_exit(NULL);
 }
 
@@ -176,15 +182,14 @@ int main()
 
             int poll_result = poll(polled_files, polled_files_len, poll_time_ms);
 
-            // exit program if server timed out
             if (poll_result == 0)
                 server_timed_out = true;
             else if (poll_result == -1)
             {
                 error_handler(errno, "poll failed");
-                server_timed_out = true; // to break loop and end program
+                server_timed_out = true; // to break current and outer loop
             }
-            else // loop through poll_files array to check which file th event was received on
+            else // loop through polled_files array to check which file an event was received on
             {
                 struct pollfd file; // placeholder to help with readability
                 for (int i = 0; i < polled_files_len; i++)
@@ -198,12 +203,12 @@ int main()
                             connection_received = true;
                         else if (file.fd == event_fd)
                         {
-                            // read counter from events file and decrement count_connections
+                            // read counter from events file and decrement number of connections
                             uint64_t count_closed;
                             if (read(event_fd, &count_closed, sizeof(count_closed)) == -1)
                             {
                                 error_handler(errno, "read from events file failed");
-                                server_timed_out = true; // to break loop and end program
+                                server_timed_out = true; // to break current and outer loop
                             }
                             else
                                 count_connections -= count_closed;
