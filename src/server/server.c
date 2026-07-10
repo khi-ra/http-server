@@ -6,14 +6,14 @@
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <sys/eventfd.h>
 #include <sys/socket.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
+#define INDEFINITE -1 // to use for polling duration
 #define MAXCONN 5
 #define BUFFSIZE 1024
-
-static int n_connections = 0;
 
 struct connection
 {
@@ -122,6 +122,14 @@ int main()
     struct accepted_socket client_socket;
     int setup_successful = 1;
 
+    // to enable communication between the main thread and worker threads
+    event_fd = eventfd(0, EFD_NONBLOCK);
+    if (event_fd == -1)
+    {
+        error_handler(errno, "creating events file failed");
+        setup_successful = 0;
+    }
+
     // create server endpoint of TCP socket
     address = create_ipv4_address("", 8080);
     if ((socket_fd = create_tcp_ipv4_socket()) == -1)
@@ -144,20 +152,72 @@ int main()
         setup_successful = 0;
     }
 
-    // accept connections and handle connected client's requests
+    // create a pollfd struct for the socket file and events file
+    struct pollfd polled_files[2] = {
+        {.fd = socket_fd, .events = POLLIN},
+        {.fd = event_fd, .events = POLLIN},
+    };
+    int polled_files_len = sizeof(polled_files) / sizeof(polled_files[0]);
+
+    int count_connections = 0;
+    int poll_time_ms;
     while (setup_successful)
     {
-        // set the polling duration based on the number of active connections
-        int timeout_ms = 0;
-        if (n_connections == 0)
-            timeout_ms = SERVER_IDLE_TIMEOUT_MS;
-        else if (n_connections > 0)
-            timeout_ms = -1;
+        // poll socket and event file
+        bool connection_received = false;
+        bool server_timed_out = false;
+        while (!connection_received && !server_timed_out)
+        {
+            // the server shouldn't idle on 0 connections indefinitely
+            if (count_connections > 0)
+                poll_time_ms = INDEFINITE;
+            else
+                poll_time_ms = SERVER_IDLE_TIMEOUT_MS;
 
-        struct accepted_socket client_socket = accept_connection(socket_fd, timeout_ms);
+            int poll_result = poll(polled_files, polled_files_len, poll_time_ms);
 
-        if (!client_socket.accepted && timeout_ms > 0)
+            // exit program if server timed out
+            if (poll_result == 0)
+                server_timed_out = true;
+            else if (poll_result == -1)
+            {
+                error_handler(errno, "poll failed");
+                server_timed_out = true; // to break loop and end program
+            }
+            else // loop through poll_files array to check which file th event was received on
+            {
+                struct pollfd file; // placeholder to help with readability
+                for (int i = 0; i < polled_files_len; i++)
+                {
+                    file = polled_files[i];
+                    bool event_received = file.revents & POLLIN;
+
+                    if (event_received)
+                    {
+                        if (file.fd == socket_fd)
+                            connection_received = true;
+                        else if (file.fd == event_fd)
+                        {
+                            // read counter from events file and decrement count_connections
+                            uint64_t count_closed;
+                            if (read(event_fd, &count_closed, sizeof(count_closed)) == -1)
+                            {
+                                error_handler(errno, "read from events file failed");
+                                server_timed_out = true; // to break loop and end program
+                            }
+                            else
+                                count_connections -= count_closed;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (server_timed_out)
             break;
+
+        if (connection_received)
+            client_socket = accept_connection(socket_fd);
 
         if (client_socket.accepted)
         {
@@ -171,7 +231,7 @@ int main()
             else
             {
                 printf("Connection successfully received\n");
-                n_connections++;
+                count_connections++;
             }
         }
     }

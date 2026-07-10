@@ -31,9 +31,12 @@ int create_tcp_ipv4_socket();
 /* Create and return a `struct sockaddr_in` initialised with IP and PORT. */
 struct sockaddr_in create_ipv4_address(char *ip, int port);
 
-/* Await a connection on SOCKET_FD for TIMEOUT_MS. If TIMEOUT_MS = -1, wait indefinitely.
- * Return `accepted_socket` with a positive fd and `.accepted` set to true on success,
- * or a negative fd and `.accepted` set to false on error or timeout. */
-struct accepted_socket accept_connection(int socket_fd, int timeout_ms);
+/* Accept a connection on SOCKET_FD.
+ *
+ * On success, return `accepted_socket` with a valid fd, `.accepted` set to true,
+ * and `.address` initialised to the connected peer's address.
+ *
+ * On error or timeout, return `accepted_socket` with `.accepted` set to false. */
+struct accepted_socket accept_connection(int socket_fd);
 
 #endif
