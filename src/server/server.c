@@ -3,6 +3,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <netinet/in.h>
+#include <pthread.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -13,12 +14,48 @@
 #define MAXCONN 5
 #define BUFFSIZE 1024
 
-int n_connections = 0;
+static int n_connections = 0;
 
-void sigchld_handler(int sig_num);
-void init_sigchld_action(struct sigaction *sigchld_action);
+struct connection
+{
+    int event_fd;
+    struct accepted_socket client_socket;
+};
+
+static void *thread_handle_connection(void *args);
 int receive_msg(struct accepted_socket *accepted_socket, char *buffer);
 void write_msg(struct accepted_socket *accepted_socket, char *buffer);
+
+/* Receive messages from connecting peer and write them to stdout.
+ * To be assigned to a thread upon creation. */
+static void *thread_handle_connection(void *args)
+{
+    struct connection *connection_data = args;
+
+    while (true)
+    {
+        char buffer[BUFFSIZE + 1];
+        int n_recv = receive_msg(&connection_data->client_socket, buffer);
+
+        if (n_recv == -1)
+        {
+            if (errno == EWOULDBLOCK || errno == EAGAIN)
+                printf("Client idle timeout, closing connection...\n");
+            else
+                error_handler(errno, "receive failed");
+
+            break;
+        }
+        if (n_recv == 0)
+            break;
+
+        write_msg(&connection_data->client_socket, buffer);
+    }
+
+    printf("[thread id: %lu] Shutting down...\n", pthread_self());
+    close(connection_data->client_socket.socket_fd);
+    pthread_exit(NULL);
+}
 
 int main()
 {
