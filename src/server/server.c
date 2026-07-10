@@ -3,122 +3,96 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <netinet/in.h>
-#include <signal.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <sys/eventfd.h>
 #include <sys/socket.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
+#define INDEFINITE -1 // to use for polling duration
 #define MAXCONN 5
 #define BUFFSIZE 1024
 
-int n_connections = 0;
+struct connection
+{
+    int event_fd;
+    struct accepted_socket client_socket;
+};
 
-void sigchld_handler(int sig_num);
-void init_sigchld_action(struct sigaction *sigchld_action);
+static int create_detached_thread(void *subroutine, void *subroutine_arg);
+static void *thread_handle_connection(void *args);
+static struct connection *create_thread_data(int efd, struct accepted_socket client_socket);
+
 int receive_msg(struct accepted_socket *accepted_socket, char *buffer);
 void write_msg(struct accepted_socket *accepted_socket, char *buffer);
 
-int main()
+/* Create and detach a thread, assigning it the execution of SUBROUTINE
+ * with argument SUBROUTINE_ARG.
+ *
+ * Return 0 on success or a non-zero error number on error.
+ */
+static int create_detached_thread(void *subroutine, void *subroutine_arg)
 {
-    int socket_fd;
-    struct sockaddr_in address;
-    struct accepted_socket accepted_socket;
-    struct sigaction sigchld_action;
-    int setup_successful = 1;
+    pthread_t thread_id;
+    int errnum;
 
-    // create server endpoint of TCP socket
-    address = create_ipv4_address("", 8080);
-    if ((socket_fd = create_tcp_ipv4_socket()) == -1)
+    errnum = pthread_create(&thread_id, NULL, subroutine, subroutine_arg);
+    if (errnum != 0)
+        return -1;
+
+    errnum = pthread_detach(thread_id);
+    if (errnum != 0)
+        return -1;
+
+    return errnum;
+}
+
+static struct connection *create_thread_data(int efd, struct accepted_socket client_socket)
+{
+    struct connection *t_data = malloc(sizeof(struct connection));
+    t_data->event_fd = efd;
+    t_data->client_socket = client_socket;
+
+    return t_data;
+}
+
+/* Receive messages from connecting peer and write them to stdout.
+ * To be assigned to a thread upon creation. */
+static void *thread_handle_connection(void *args)
+{
+    struct connection *connection_data = args;
+
+    while (true)
     {
-        error_handler(errno, "creating socket failed");
-        setup_successful = 0;
-    }
-    else if (bind(socket_fd, (struct sockaddr *) &address, sizeof(struct sockaddr)) == -1)
-    {
-        error_handler(errno, "bind failed");
-        setup_successful = 0;
-    }
+        char buffer[BUFFSIZE + 1];
+        int n_recv = receive_msg(&connection_data->client_socket, buffer);
 
-    if (setup_successful)
-        printf("Server socket successfully created\n");
+        if (n_recv == -1)
+        {
+            if (errno == EWOULDBLOCK || errno == EAGAIN)
+                printf("Client idle timeout, closing connection...\n");
+            else
+                error_handler(errno, "receive failed");
 
-    if ((listen(socket_fd, MAXCONN)) == -1)
-    {
-        error_handler(errno, "listen failed");
-        setup_successful = 0;
-    }
-
-    // initialise a custom sigaction struct and set it as SIGCHLD's action
-    init_sigchld_action(&sigchld_action);
-    if (sigaction(SIGCHLD, &sigchld_action, NULL) == -1)
-    {
-        error_handler(errno, "sigaction failed");
-        setup_successful = 0;
-    }
-
-    // accept connections and handle connected client's requests
-    while (setup_successful)
-    {
-        // set the polling duration based on the number of active connections
-        int timeout_ms = 0;
-        if (n_connections == 0)
-            timeout_ms = SERVER_IDLE_TIMEOUT_MS;
-        else if (n_connections > 0)
-            timeout_ms = -1;
-
-        accepted_socket = accept_connection(socket_fd, timeout_ms);
-
-        if (!accepted_socket.accepted && timeout_ms > 0)
+            break;
+        }
+        if (n_recv == 0)
             break;
 
-        if (accepted_socket.accepted)
-        {
-            printf("Connection successfully received\n");
-
-            pid_t handler_pid = fork();
-            if (handler_pid == 0)
-            {
-                // receive messages from connected peer and write them to stdout
-                while (true)
-                {
-                    char buffer[BUFFSIZE + 1];
-                    int n_recv = receive_msg(&accepted_socket, buffer);
-
-                    if (n_recv > 0)
-                        write_msg(&accepted_socket, buffer);
-                    else if (n_recv == 0)
-                        break;
-                    else
-                    {
-                        // check if connection timed out
-                        if (errno == EAGAIN || errno == EWOULDBLOCK)
-                        {
-                            printf("Client %i idle timeout\n", n_connections);
-                            break;
-                        }
-                        error_handler(errno, "receive failed");
-                    }
-                }
-                printf("Closing connection for client %i\n", n_connections);
-
-                // child process cleanup
-                close(accepted_socket.socket_fd);
-                close(socket_fd);
-                _exit(EXIT_SUCCESS);
-            }
-            else if (handler_pid > 0)
-                n_connections++;
-            else
-                error_handler(errno, "fork failed");
-        }
+        write_msg(&connection_data->client_socket, buffer);
     }
-    printf("No active connections, closing server\n");
 
-    // cleanup
-    close(socket_fd);
-    return 0;
+    // notify main thread about closing connection
+    uint64_t exit_signal = 1;
+    if (write(connection_data->event_fd, &exit_signal, sizeof(exit_signal)) == -1)
+        error_handler(errno, "write to event file failed");
+
+    printf("[thread id: %lu] Shutting down...\n", pthread_self());
+    close(connection_data->client_socket.socket_fd);
+    free(connection_data);
+    pthread_exit(NULL);
 }
 
 /* Read message received on SOCK_FD. Return number of bytes received
@@ -146,24 +120,130 @@ void write_msg(struct accepted_socket *accepted_socket, char *buffer)
     printf("Message from %s:%hu = %s \n", ip, port, buffer);
 }
 
-/* Custom handler for signal SIGCHLD. */
-void sigchld_handler(int sig_num)
+int main()
 {
-    // quiet unused variable warning
-    (void) sig_num;
+    int event_fd;
+    int socket_fd;
+    struct sockaddr_in address;
+    struct accepted_socket client_socket;
+    int setup_successful = 1;
 
-    int saved_errno = errno;
+    // to enable communication between the main thread and worker threads
+    event_fd = eventfd(0, EFD_NONBLOCK);
+    if (event_fd == -1)
+    {
+        error_handler(errno, "creating events file failed");
+        setup_successful = 0;
+    }
 
-    while (waitpid(-1, NULL, WNOHANG) > 0)
-        n_connections--;
+    // create server endpoint of TCP socket
+    address = create_ipv4_address("", 8080);
+    if ((socket_fd = create_tcp_ipv4_socket()) == -1)
+    {
+        error_handler(errno, "creating socket failed");
+        setup_successful = 0;
+    }
+    else if (bind(socket_fd, (struct sockaddr *) &address, sizeof(struct sockaddr)) == -1)
+    {
+        error_handler(errno, "bind failed");
+        setup_successful = 0;
+    }
 
-    errno = saved_errno;
-}
+    if (setup_successful)
+        printf("Server socket successfully created\n");
 
-/* Initialise SIGCHLD_ACTION. */
-void init_sigchld_action(struct sigaction *sigchld_action)
-{
-    sigchld_action->sa_handler = sigchld_handler;
-    sigchld_action->sa_flags = SA_RESTART;
-    sigemptyset(&sigchld_action->sa_mask);
+    if ((listen(socket_fd, MAXCONN)) == -1)
+    {
+        error_handler(errno, "listen failed");
+        setup_successful = 0;
+    }
+
+    // create a pollfd struct for the socket file and events file
+    struct pollfd polled_files[2] = {
+        {.fd = socket_fd, .events = POLLIN},
+        {.fd = event_fd, .events = POLLIN},
+    };
+    int polled_files_len = sizeof(polled_files) / sizeof(polled_files[0]);
+
+    int count_connections = 0;
+    int poll_time_ms;
+    while (setup_successful)
+    {
+        // poll socket and event file
+        bool connection_received = false;
+        bool server_timed_out = false;
+        while (!connection_received && !server_timed_out)
+        {
+            // the server shouldn't idle on 0 connections indefinitely
+            if (count_connections > 0)
+                poll_time_ms = INDEFINITE;
+            else
+                poll_time_ms = SERVER_IDLE_TIMEOUT_MS;
+
+            int poll_result = poll(polled_files, polled_files_len, poll_time_ms);
+
+            if (poll_result == 0)
+                server_timed_out = true;
+            else if (poll_result == -1)
+            {
+                error_handler(errno, "poll failed");
+                server_timed_out = true; // to break current and outer loop
+            }
+            else // loop through polled_files array to check which file an event was received on
+            {
+                struct pollfd file; // placeholder to help with readability
+                for (int i = 0; i < polled_files_len; i++)
+                {
+                    file = polled_files[i];
+                    bool event_received = file.revents & POLLIN;
+
+                    if (event_received)
+                    {
+                        if (file.fd == socket_fd)
+                            connection_received = true;
+                        else if (file.fd == event_fd)
+                        {
+                            // read counter from events file and decrement number of connections
+                            uint64_t count_closed;
+                            if (read(event_fd, &count_closed, sizeof(count_closed)) == -1)
+                            {
+                                error_handler(errno, "read from events file failed");
+                                server_timed_out = true; // to break current and outer loop
+                            }
+                            else
+                                count_connections -= count_closed;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (server_timed_out)
+            break;
+
+        if (connection_received)
+            client_socket = accept_connection(socket_fd);
+
+        if (client_socket.accepted)
+        {
+            struct connection *t_data = create_thread_data(event_fd, client_socket);
+            int errnum = create_detached_thread(thread_handle_connection, t_data);
+            if (errnum != 0)
+            {
+                error_handler(errnum, "creating thread failed");
+                free(t_data);
+            }
+            else
+            {
+                printf("Connection successfully received\n");
+                count_connections++;
+            }
+        }
+    }
+    printf("No active connections, closing server\n");
+
+    // cleanup
+    close(socket_fd);
+    close(event_fd);
+    return 0;
 }

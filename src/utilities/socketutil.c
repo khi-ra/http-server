@@ -38,19 +38,12 @@ struct sockaddr_in create_ipv4_address(char *ip, int port)
     return addr;
 }
 
-struct accepted_socket accept_connection(int socket_fd, int timeout_ms)
+struct accepted_socket accept_connection(int socket_fd)
 {
     struct accepted_socket accepted_socket;
     struct sockaddr_in addr;
     socklen_t addr_size = sizeof(struct sockaddr_in);
 
-    if (poll_read_events(socket_fd, timeout_ms) <= 0)
-    {
-        accepted_socket.accepted = false;
-        return accepted_socket;
-    }
-
-    // accept connection
     int fd = accept(socket_fd, (struct sockaddr *) &addr, &addr_size);
     accepted_socket.socket_fd = fd;
     accepted_socket.address = addr;
