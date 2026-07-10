@@ -24,6 +24,7 @@ struct connection
 
 static int create_detached_thread(void *subroutine, void *subroutine_arg);
 static void *thread_handle_connection(void *args);
+static struct connection *create_thread_data(int efd, struct accepted_socket client_socket);
 
 int receive_msg(struct accepted_socket *accepted_socket, char *buffer);
 void write_msg(struct accepted_socket *accepted_socket, char *buffer);
@@ -47,6 +48,15 @@ static int create_detached_thread(void *subroutine, void *subroutine_arg)
         return -1;
 
     return errnum;
+}
+
+static struct connection *create_thread_data(int efd, struct accepted_socket client_socket)
+{
+    struct connection *t_data = malloc(sizeof(struct connection));
+    t_data->event_fd = efd;
+    t_data->client_socket = client_socket;
+
+    return t_data;
 }
 
 /* Receive messages from connecting peer and write them to stdout.
@@ -107,14 +117,6 @@ int main()
     if ((listen(socket_fd, MAXCONN)) == -1)
     {
         error_handler(errno, "listen failed");
-        setup_successful = 0;
-    }
-
-    // initialise a custom sigaction struct and set it as SIGCHLD's action
-    init_sigchld_action(&sigchld_action);
-    if (sigaction(SIGCHLD, &sigchld_action, NULL) == -1)
-    {
-        error_handler(errno, "sigaction failed");
         setup_successful = 0;
     }
 
@@ -204,26 +206,4 @@ void write_msg(struct accepted_socket *accepted_socket, char *buffer)
     port = ntohs(accepted_socket->address.sin_port);
 
     printf("Message from %s:%hu = %s \n", ip, port, buffer);
-}
-
-/* Custom handler for signal SIGCHLD. */
-void sigchld_handler(int sig_num)
-{
-    // quiet unused variable warning
-    (void) sig_num;
-
-    int saved_errno = errno;
-
-    while (waitpid(-1, NULL, WNOHANG) > 0)
-        n_connections--;
-
-    errno = saved_errno;
-}
-
-/* Initialise SIGCHLD_ACTION. */
-void init_sigchld_action(struct sigaction *sigchld_action)
-{
-    sigchld_action->sa_handler = sigchld_handler;
-    sigchld_action->sa_flags = SA_RESTART;
-    sigemptyset(&sigchld_action->sa_mask);
 }
