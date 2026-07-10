@@ -49,6 +49,11 @@ static struct connection *create_thread_data(struct server *server, struct accep
 int receive_msg(struct accepted_socket *accepted_socket, char *buffer);
 void write_msg(struct accepted_socket *accepted_socket, char *buffer);
 
+/* Initialise *SERVER with IP and PORT, and mark the server as a passive socket
+ * with `listen()`.
+ *
+ * Return 0 on success, -1 on error.
+ */
 int setup(struct server *server, char *ip, int port)
 {
     int event_fd;
@@ -83,6 +88,14 @@ out:
     return err_flag;
 }
 
+/* Accept a connection on SOCKET_FD.
+ *
+ * On success, return a `accepted_socket` initialised with the peer's socket data
+ * and `.accepted` set to true.
+ *
+ * On error or timeout, return `accepted_socket` with `.socket_fd` set to -1 and
+ * `.accepted` set to false.
+ */
 struct accepted_socket accept_connection(int socket_fd)
 {
     struct accepted_socket accepted_socket;
@@ -99,8 +112,8 @@ struct accepted_socket accept_connection(int socket_fd)
     return accepted_socket;
 }
 
-/* Create and detach a thread, assigning it the execution of SUBROUTINE
- * with argument SUBROUTINE_ARG.
+/* Create and detach a thread, assigning it the execution of SUBROUTINE with
+ * argument SUBROUTINE_ARG.
  *
  * Return 0 on success or a non-zero error number on error.
  */
@@ -131,7 +144,8 @@ static struct connection *create_thread_data(struct server *server, struct accep
 }
 
 /* Receive messages from connecting peer and write them to stdout.
- * To be assigned to a thread upon creation. */
+ * To be assigned to a thread upon creation.
+ */
 static void *thread_handle_connection(void *args)
 {
     struct connection *connection_data = args;
@@ -145,7 +159,7 @@ static void *thread_handle_connection(void *args)
         if (n_recv == -1)
         {
             bool socket_timed_out = (errno == EWOULDBLOCK || errno == EAGAIN);
-            // socket timeout is not treated as an error
+            // socket timeout is not considered an error
             if (!socket_timed_out)
                 errnum = ERR_SOCK_IO;
 
@@ -157,7 +171,6 @@ static void *thread_handle_connection(void *args)
         write_msg(&connection_data->client_socket, buffer);
     }
 
-    // notify main thread about closing connection
     uint64_t exit_signal = 1;
     if (write(connection_data->server.event_fd, &exit_signal, sizeof(exit_signal)) == -1)
     {
@@ -175,11 +188,12 @@ static void *thread_handle_connection(void *args)
     pthread_exit(NULL);
 }
 
-/* Read message received on SOCK_FD. Return number of bytes received
- * or -1 for error. */
-int receive_msg(struct accepted_socket *accepted_socket, char *buffer)
+/* Read message received on SOCK_FD. Return number of bytes received or -1
+ * for error.
+ */
+int receive_msg(struct accepted_socket *socket, char *buffer)
 {
-    int n_recv = recv(accepted_socket->fd, buffer, BUFFSIZE, 0);
+    int n_recv = recv(socket->fd, buffer, BUFFSIZE, 0);
 
     if (n_recv > 0)
         buffer[n_recv] = 0;
@@ -189,15 +203,15 @@ int receive_msg(struct accepted_socket *accepted_socket, char *buffer)
     return n_recv;
 }
 
-/* Write message in BUFFER to stdout in the format "IP:PORT = BUFFER". */
-void write_msg(struct accepted_socket *accepted_socket, char *buffer)
+/* Write the message in BUFFER to stdout. */
+void write_msg(struct accepted_socket *socket, char *buffer)
 {
     char ip[INET_ADDRSTRLEN];
     short port;
 
     // convert ip and port to human readable format
-    inet_ntop(accepted_socket->address.sin_family, &accepted_socket->address.sin_addr.s_addr, ip, sizeof(ip));
-    port = ntohs(accepted_socket->address.sin_port);
+    inet_ntop(socket->address.sin_family, &socket->address.sin_addr.s_addr, ip, sizeof(ip));
+    port = ntohs(socket->address.sin_port);
 
     printf("Message from %s:%hu = %s \n", ip, port, buffer);
 }
@@ -234,7 +248,7 @@ int main()
 
             int poll_result = poll(polled_files, polled_files_len, poll_time_ms);
 
-            // exit program if server timed out
+            // server timed out
             if (poll_result == 0)
                 goto out;
 

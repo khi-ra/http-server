@@ -10,6 +10,7 @@ static const char *error_messages[] = {
     [ERR_THREAD] = "Creating/Detaching thread failed",
 };
 
+/* Prints ERRNUM's error message and MSG to stderr. */
 void error_handler(int errnum, const char *msg)
 {
     if (msg)

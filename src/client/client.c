@@ -11,6 +11,10 @@ static int errnum;
 static int setup(int *fd, struct sockaddr_in *server_addr, char *ip, int port);
 static int read_input(char **line);
 
+/* Initialise FD as a TCP IPv4 socket fd. Initialise SERVER_ADDR with IP and PORT.
+ *
+ * Return 0 on success, -1 on error.
+ */
 int setup(int *fd, struct sockaddr_in *server_addr, char *ip, int port)
 {
     int socket_fd;
@@ -33,6 +37,19 @@ out:
         errnum = ERR_SETUP;
 
     return err_flag;
+}
+
+/* Read input from stdin and store it in LINE.
+ *
+ * Return number of bytes read or -1 on error. */
+int read_input(char **line)
+{
+    size_t line_size = 0;
+    int n_read = getline(line, &line_size, stdin);
+    if (n_read == -1 && (errno == EINVAL || errno == ENOMEM))
+        errnum = ERR_SOCK_IO;
+
+    return n_read;
 }
 
 int main()
@@ -64,22 +81,11 @@ int main()
             break;
     }
 
+error_out:
     error_handler(errno, err_str(errnum));
 
 out:
     close(socket_fd);
     if (line)
         free(line);
-}
-
-/* Read input line-by-line from stdin and store it in LINE.
- * Return number of bytes read or -1 for errors. */
-int read_input(char **line)
-{
-    size_t line_size = 0;
-    int n_read = getline(line, &line_size, stdin);
-    if (n_read == -1 && (errno == EINVAL || errno == ENOMEM))
-        errnum = ERR_SOCK_IO;
-
-    return n_read;
 }
