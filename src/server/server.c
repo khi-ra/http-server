@@ -225,6 +225,8 @@ int main()
     if (setup_result == -1)
         goto error_out;
 
+    printf("Server socket successfully created\n");
+
     // create a pollfd struct for the socket file and events file
     struct pollfd polled_files[2] = {
         {.fd = server.socket_fd, .events = POLLIN},
