@@ -15,54 +15,141 @@
 #define MAXCONN 5
 #define BUFFSIZE 1024
 
+/* How long to wait for a connection in idle before shutting down. */
+static const int SERVER_IDLE_TIMEOUT_MS = 5000;
+static int errnum;
+
+struct server
+{
+    int socket_fd;
+    int event_fd;
+    struct sockaddr_in address;
+};
+
+struct accepted_socket
+{
+    int fd;
+    struct sockaddr_in address;
+    bool accepted;
+};
+
 struct connection
 {
-    int event_fd;
+    struct server server;
     struct accepted_socket client_socket;
 };
 
+static int setup(struct server *server, char *ip, int port);
+struct accepted_socket accept_connection(int socket_fd);
+
 static int create_detached_thread(void *subroutine, void *subroutine_arg);
 static void *thread_handle_connection(void *args);
-static struct connection *create_thread_data(int efd, struct accepted_socket client_socket);
+static struct connection *create_thread_data(struct server *server, struct accepted_socket *client_socket);
 
 int receive_msg(struct accepted_socket *accepted_socket, char *buffer);
 void write_msg(struct accepted_socket *accepted_socket, char *buffer);
 
-/* Create and detach a thread, assigning it the execution of SUBROUTINE
- * with argument SUBROUTINE_ARG.
+/* Initialise *SERVER with IP and PORT, and mark the server as a passive socket
+ * with `listen()`.
+ *
+ * Return 0 on success, -1 on error.
+ */
+int setup(struct server *server, char *ip, int port)
+{
+    int event_fd;
+    int socket_fd;
+    int err_flag = -1;
+
+    event_fd = eventfd(0, EFD_NONBLOCK);
+    if (event_fd == -1)
+        goto out;
+
+    struct sockaddr_in address = create_ipv4_address(ip, port);
+    socket_fd = create_tcp_ipv4_socket();
+    if (socket_fd == -1)
+        goto out;
+
+    int bind_result = bind(socket_fd, (struct sockaddr *) &address, sizeof(struct sockaddr));
+    if (bind_result == -1)
+        goto out;
+
+    int listen_result = listen(socket_fd, MAXCONN);
+    if (listen_result == -1)
+        goto out;
+
+    err_flag = 0;
+    server->socket_fd = socket_fd;
+    server->event_fd = event_fd;
+    server->address = address;
+
+out:
+    if (err_flag == -1)
+        errnum = ERR_SETUP;
+    return err_flag;
+}
+
+/* Accept a connection on SOCKET_FD.
+ *
+ * On success, return a `accepted_socket` initialised with the peer's socket data
+ * and `.accepted` set to true.
+ *
+ * On error or timeout, return `accepted_socket` with `.socket_fd` set to -1 and
+ * `.accepted` set to false.
+ */
+struct accepted_socket accept_connection(int socket_fd)
+{
+    struct accepted_socket accepted_socket;
+    struct sockaddr_in addr;
+    socklen_t addr_size = sizeof(struct sockaddr_in);
+
+    int fd = accept(socket_fd, (struct sockaddr *) &addr, &addr_size);
+    if (fd == -1)
+        errnum = ERR_ACCEPT;
+    accepted_socket.fd = fd;
+    accepted_socket.address = addr;
+    accepted_socket.accepted = accepted_socket.fd > 0;
+
+    return accepted_socket;
+}
+
+/* Create and detach a thread, assigning it the execution of SUBROUTINE with
+ * argument SUBROUTINE_ARG.
  *
  * Return 0 on success or a non-zero error number on error.
  */
 static int create_detached_thread(void *subroutine, void *subroutine_arg)
 {
     pthread_t thread_id;
-    int errnum;
+    int errnum = 0;
 
     errnum = pthread_create(&thread_id, NULL, subroutine, subroutine_arg);
     if (errnum != 0)
-        return -1;
+        goto out;
 
     errnum = pthread_detach(thread_id);
     if (errnum != 0)
-        return -1;
+        goto out;
 
+out:
     return errnum;
 }
 
-static struct connection *create_thread_data(int efd, struct accepted_socket client_socket)
+static struct connection *create_thread_data(struct server *server, struct accepted_socket *client_socket)
 {
     struct connection *t_data = malloc(sizeof(struct connection));
-    t_data->event_fd = efd;
-    t_data->client_socket = client_socket;
+    t_data->server = *server;
+    t_data->client_socket = *client_socket;
 
     return t_data;
 }
 
 /* Receive messages from connecting peer and write them to stdout.
- * To be assigned to a thread upon creation. */
+ * To be assigned to a thread upon creation.
+ */
 static void *thread_handle_connection(void *args)
 {
     struct connection *connection_data = args;
+    int err_code = -1;
 
     while (true)
     {
@@ -71,10 +158,10 @@ static void *thread_handle_connection(void *args)
 
         if (n_recv == -1)
         {
-            if (errno == EWOULDBLOCK || errno == EAGAIN)
-                printf("Client idle timeout, closing connection...\n");
-            else
-                error_handler(errno, "receive failed");
+            bool socket_timed_out = (errno == EWOULDBLOCK || errno == EAGAIN);
+            // socket timeout is not considered an error
+            if (!socket_timed_out)
+                errnum = ERR_SOCK_IO;
 
             break;
         }
@@ -84,97 +171,78 @@ static void *thread_handle_connection(void *args)
         write_msg(&connection_data->client_socket, buffer);
     }
 
-    // notify main thread about closing connection
     uint64_t exit_signal = 1;
-    if (write(connection_data->event_fd, &exit_signal, sizeof(exit_signal)) == -1)
-        error_handler(errno, "write to event file failed");
+    if (write(connection_data->server.event_fd, &exit_signal, sizeof(exit_signal)) == -1)
+    {
+        // only set err_code if it wasn't set earlier
+        if (err_code == -1)
+            err_code = ERR_EVENTFD;
+    }
+
+    if (errnum != -1)
+        error_handler(errno, err_str(errnum));
 
     printf("[thread id: %lu] Shutting down...\n", pthread_self());
-    close(connection_data->client_socket.socket_fd);
+    close(connection_data->client_socket.fd);
     free(connection_data);
     pthread_exit(NULL);
 }
 
-/* Read message received on SOCK_FD. Return number of bytes received
- * or -1 for error. */
-int receive_msg(struct accepted_socket *accepted_socket, char *buffer)
+/* Read message received on SOCK_FD. Return number of bytes received or -1
+ * for error.
+ */
+int receive_msg(struct accepted_socket *socket, char *buffer)
 {
-    int n_recv = recv(accepted_socket->socket_fd, buffer, BUFFSIZE, 0);
+    int n_recv = recv(socket->fd, buffer, BUFFSIZE, 0);
 
     if (n_recv > 0)
         buffer[n_recv] = 0;
+    else if (n_recv == -1)
+        errnum = ERR_SOCK_IO;
 
     return n_recv;
 }
 
-/* Write message in BUFFER to stdout in the format "IP:PORT = BUFFER". */
-void write_msg(struct accepted_socket *accepted_socket, char *buffer)
+/* Write the message in BUFFER to stdout. */
+void write_msg(struct accepted_socket *socket, char *buffer)
 {
     char ip[INET_ADDRSTRLEN];
     short port;
 
     // convert ip and port to human readable format
-    inet_ntop(accepted_socket->address.sin_family, &accepted_socket->address.sin_addr.s_addr, ip, sizeof(ip));
-    port = ntohs(accepted_socket->address.sin_port);
+    inet_ntop(socket->address.sin_family, &socket->address.sin_addr.s_addr, ip, sizeof(ip));
+    port = ntohs(socket->address.sin_port);
 
     printf("Message from %s:%hu = %s \n", ip, port, buffer);
 }
 
 int main()
 {
-    int event_fd;
-    int socket_fd;
-    struct sockaddr_in address;
-    struct accepted_socket client_socket;
-    int setup_successful = 1;
+    struct server server;
+    struct connection *connection = NULL;
 
-    // to enable communication between the main thread and worker threads
-    event_fd = eventfd(0, EFD_NONBLOCK);
-    if (event_fd == -1)
-    {
-        error_handler(errno, "creating events file failed");
-        setup_successful = 0;
-    }
+    int setup_result = setup(&server, "", 8080);
+    if (setup_result == -1)
+        goto error_out;
 
-    // create server endpoint of TCP socket
-    address = create_ipv4_address("", 8080);
-    if ((socket_fd = create_tcp_ipv4_socket()) == -1)
-    {
-        error_handler(errno, "creating socket failed");
-        setup_successful = 0;
-    }
-    else if (bind(socket_fd, (struct sockaddr *) &address, sizeof(struct sockaddr)) == -1)
-    {
-        error_handler(errno, "bind failed");
-        setup_successful = 0;
-    }
-
-    if (setup_successful)
-        printf("Server socket successfully created\n");
-
-    if ((listen(socket_fd, MAXCONN)) == -1)
-    {
-        error_handler(errno, "listen failed");
-        setup_successful = 0;
-    }
+    printf("Server socket successfully created\n");
 
     // create a pollfd struct for the socket file and events file
     struct pollfd polled_files[2] = {
-        {.fd = socket_fd, .events = POLLIN},
-        {.fd = event_fd, .events = POLLIN},
+        {.fd = server.socket_fd, .events = POLLIN},
+        {.fd = server.event_fd, .events = POLLIN},
     };
     int polled_files_len = sizeof(polled_files) / sizeof(polled_files[0]);
 
     int count_connections = 0;
-    int poll_time_ms;
-    while (setup_successful)
+    while (true)
     {
         // poll socket and event file
         bool connection_received = false;
-        bool server_timed_out = false;
-        while (!connection_received && !server_timed_out)
+        while (!connection_received)
         {
-            // the server shouldn't idle on 0 connections indefinitely
+            // prevent the server indefinitely idling on 0 connections
+            int poll_time_ms;
             if (count_connections > 0)
                 poll_time_ms = INDEFINITE;
             else
@@ -182,68 +250,60 @@ int main()
 
             int poll_result = poll(polled_files, polled_files_len, poll_time_ms);
 
+            // server timed out
             if (poll_result == 0)
-                server_timed_out = true;
-            else if (poll_result == -1)
-            {
-                error_handler(errno, "poll failed");
-                server_timed_out = true; // to break current and outer loop
-            }
-            else // loop through polled_files array to check which file an event was received on
-            {
-                struct pollfd file; // placeholder to help with readability
-                for (int i = 0; i < polled_files_len; i++)
-                {
-                    file = polled_files[i];
-                    bool event_received = file.revents & POLLIN;
+                goto out;
 
-                    if (event_received)
+            if (poll_result == -1)
+            {
+                errnum = ERR_POLL;
+                goto error_out;
+            }
+
+            struct pollfd file; // placeholder to help with readability
+            for (int i = 0; i < polled_files_len; i++)
+            {
+                file = polled_files[i];
+                bool event_on_file = file.revents & POLLIN;
+
+                if (event_on_file)
+                {
+                    if (file.fd == server.socket_fd)
+                        connection_received = true;
+                    else if (file.fd == server.event_fd)
                     {
-                        if (file.fd == socket_fd)
-                            connection_received = true;
-                        else if (file.fd == event_fd)
+                        int64_t count_closed;
+                        if (read(server.event_fd, &count_closed, sizeof(count_closed)) == -1)
                         {
-                            // read counter from events file and decrement number of connections
-                            uint64_t count_closed;
-                            if (read(event_fd, &count_closed, sizeof(count_closed)) == -1)
-                            {
-                                error_handler(errno, "read from events file failed");
-                                server_timed_out = true; // to break current and outer loop
-                            }
-                            else
-                                count_connections -= count_closed;
+                            errnum = ERR_EVENTFD;
+                            goto error_out;
                         }
+                        count_connections -= count_closed;
                     }
                 }
             }
         }
 
-        if (server_timed_out)
-            break;
-
-        if (connection_received)
-            client_socket = accept_connection(socket_fd);
-
+        struct accepted_socket client_socket = accept_connection(server.socket_fd);
         if (client_socket.accepted)
         {
-            struct connection *t_data = create_thread_data(event_fd, client_socket);
-            int errnum = create_detached_thread(thread_handle_connection, t_data);
-            if (errnum != 0)
-            {
-                error_handler(errnum, "creating thread failed");
-                free(t_data);
-            }
-            else
-            {
-                printf("Connection successfully received\n");
-                count_connections++;
-            }
+            struct connection *t_data = create_thread_data(&server, &client_socket);
+
+            errno = create_detached_thread(thread_handle_connection, t_data);
+            if (errno != 0)
+                goto error_free_conn;
+
+            printf("Connection successfully received\n");
+            count_connections++;
         }
     }
-    printf("No active connections, closing server\n");
 
-    // cleanup
-    close(socket_fd);
-    close(event_fd);
-    return 0;
+error_free_conn:
+    free(connection);
+error_out:
+    error_handler(errno, err_str(errnum));
+out:
+    printf("No active connections, closing server...\n");
+    close(server.socket_fd);
+    close(server.event_fd);
 }
