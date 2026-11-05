@@ -1,6 +1,5 @@
 #include "../utilities/errorutil.h"
 #include "../utilities/socketutil.h"
-#include <asm-generic/errno.h>
 #include <errno.h>
 #include <netinet/in.h>
 #include <stdlib.h>
@@ -8,36 +7,7 @@
 
 static int errnum;
 
-static int setup(int *fd, struct sockaddr_in *server_addr, char *ip, int port);
 static int read_input(char **line);
-
-/* Initialise FD as a TCP IPv4 socket fd. Initialise SERVER_ADDR with IP and PORT.
- *
- * Return 0 on success, -1 on error.
- */
-int setup(int *fd, struct sockaddr_in *server_addr, char *ip, int port)
-{
-    int socket_fd;
-    int err_flag = -1;
-
-    *server_addr = create_ipv4_address(ip, port);
-    socket_fd = create_tcp_ipv4_socket();
-    if (socket_fd == -1)
-        goto out;
-
-    int connect_result = connect(socket_fd, (struct sockaddr *) &server_addr, sizeof(*server_addr));
-    if (connect_result == -1)
-        goto out;
-
-    *fd = socket_fd;
-    err_flag = 0;
-
-out:
-    if (err_flag == -1)
-        errnum = ERR_SETUP;
-
-    return err_flag;
-}
 
 /* Read input from stdin and store it in LINE.
  *
@@ -46,7 +16,7 @@ int read_input(char **line)
 {
     size_t line_size = 0;
     int n_read = getline(line, &line_size, stdin);
-    if (n_read == -1 && (errno == EINVAL || errno == ENOMEM))
+    if (n_read < 0 && (errno == EINVAL || errno == ENOMEM))
         errnum = ERR_SOCK_IO;
 
     return n_read;
@@ -54,12 +24,15 @@ int read_input(char **line)
 
 int main()
 {
-    int socket_fd;
-    struct sockaddr_in server_address;
     char *line = NULL;
 
-    int setup_result = setup(&socket_fd, &server_address, "127.0.0.1", 8080);
-    if (setup_result == -1)
+    struct sockaddr_in server_addr = create_ipv4_address("127.0.0.1", 8080);
+    int socket_fd = create_tcp_ipv4_socket();
+    if (socket_fd < 0)
+        goto error_out;
+
+    int result = connect(socket_fd, (struct sockaddr *) &server_addr, sizeof(server_addr));
+    if (result < 0)
         goto error_out;
 
     printf("Connection was successful\n");
@@ -69,15 +42,13 @@ int main()
     while (true)
     {
         int n_read = read_input(&line);
-
-        if (n_read == -1)
+        if (n_read < 0)
             break;
-
         if (strcmp(line, "exit\n") == 0)
             goto out;
 
         int n_sent = send(socket_fd, line, n_read, 0);
-        if (n_sent == -1 && errnum == ERR_SOCK_IO)
+        if (n_sent < 0 && errnum == ERR_SOCK_IO)
             break;
     }
 

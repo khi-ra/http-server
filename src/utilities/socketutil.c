@@ -7,11 +7,11 @@ int create_tcp_ipv4_socket()
     timeout.tv_usec = 0;
     int socket_fd;
 
-    if ((socket_fd = socket(AF_INET, SOCK_STREAM, 0)) == -1)
+    if ((socket_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0)
         return -1;
 
     // avoid leaking socket_fd if socket() succeeds but setsockopt() fails
-    if (setsockopt(socket_fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) == -1)
+    if (setsockopt(socket_fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0)
     {
         close(socket_fd);
         return -1;
@@ -28,7 +28,8 @@ struct sockaddr_in create_ipv4_address(char *ip, int port)
     if (port)
         addr.sin_port = htons(port);
 
-    if (strlen(ip) == 0) // listen for any ip address if none is specified
+    // listen for any ip address if none is specified
+    if (strlen(ip) == 0)
         addr.sin_addr.s_addr = INADDR_ANY;
     else
         inet_pton(AF_INET, ip, &addr.sin_addr.s_addr);

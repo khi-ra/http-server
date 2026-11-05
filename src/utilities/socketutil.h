@@ -15,6 +15,12 @@
 /* How long to idle an active connection before closing it. */
 static const int SOCKET_IDLE_TIMEOUT_S = 60;
 
+typedef struct
+{
+    int fd;
+    struct sockaddr_in address;
+} socket_t;
+
 /* Create and return a file descriptor for a TCP IPv4 socket. */
 int create_tcp_ipv4_socket();
 
