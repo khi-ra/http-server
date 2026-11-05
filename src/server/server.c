@@ -33,33 +33,30 @@ void write_msg(socket_t *client, char *buffer);
  *
  * Return 0 on success or -1 on error.
  */
+
 int setup(socket_t *server, char *ip, int port)
 {
-    int socket_fd;
-    int err_flag = -1;
-
     struct sockaddr_in address = create_ipv4_address(ip, port);
-    socket_fd = create_tcp_ipv4_socket();
+    int socket_fd = create_tcp_ipv4_socket();
     if (socket_fd < 0)
-        goto out;
+        goto error_out;
 
     int result;
     result = bind(socket_fd, (struct sockaddr *) &address, sizeof(struct sockaddr));
     if (result < 0)
-        goto out;
+        goto error_out;
 
     result = listen(socket_fd, MAXCONN);
     if (result < 0)
-        goto out;
+        goto error_out;
 
-    err_flag = 0;
     server->fd = socket_fd;
     server->address = address;
+    return 0;
 
-out:
-    if (err_flag < 0)
-        errnum = ERR_SETUP;
-    return err_flag;
+error_out:
+    errnum = ERR_SETUP;
+    return -1;
 }
 
 /* Accept a connection on SOCKET_FD.
@@ -71,7 +68,7 @@ out:
 socket_t accept_connection(int socket_fd)
 {
     struct sockaddr_in addr;
-    socklen_t addr_size = sizeof(struct sockaddr_in);
+    socklen_t addr_size = sizeof(addr);
 
     int fd = accept(socket_fd, (struct sockaddr *) &addr, &addr_size);
     if (fd < 0)

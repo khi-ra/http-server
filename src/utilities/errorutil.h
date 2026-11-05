@@ -6,6 +6,7 @@
 
 enum error_codes
 {
+    ERR_NONE,
     ERR_SETUP,        /* Creating socket fd, binding, or listening failed. */
     ERR_ACCEPT,       /* Accepting the incoming connection failed. */
     ERR_SOCK_IO,      /* Sending or receiving message over the connection failed. */
